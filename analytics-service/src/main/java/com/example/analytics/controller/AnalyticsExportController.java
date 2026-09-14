@@ -11,6 +11,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestParam;
 
 import java.io.IOException;
 
@@ -28,8 +30,11 @@ public class AnalyticsExportController {
     }
 
     @GetMapping("/analytics")
-    public ApiResponse<AnalyticsDTO> getAnalytics() {
-        AnalyticsDTO analytics = analyticsService.getAnalytics();
+    public ApiResponse<AnalyticsDTO> getAnalytics(
+            @RequestHeader("X-Workspace-Id") Long workspaceId,
+            @RequestHeader("X-User") String username,
+            @RequestParam(required=false) Long projectId) {
+        AnalyticsDTO analytics = analyticsService.getAnalytics(workspaceId, projectId);
         return ApiResponse.ok("Analytics data retrieved successfully", analytics);
     }
 
