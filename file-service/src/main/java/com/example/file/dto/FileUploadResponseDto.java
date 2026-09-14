@@ -9,6 +9,7 @@ public class FileUploadResponseDto {
     private Long fileSize;
     private String entityType;
     private Long entityId;
+    private Long workspaceId;
     private String uploadedBy;
     private LocalDateTime uploadedAt;
     private String presignedDownloadUrl;
@@ -33,6 +34,8 @@ public class FileUploadResponseDto {
 
     public Long getEntityId() { return entityId; }
     public void setEntityId(Long entityId) { this.entityId = entityId; }
+    public Long getWorkspaceId() { return workspaceId; }
+    public void setWorkspaceId(Long workspaceId) { this.workspaceId = workspaceId; }
 
     public String getUploadedBy() { return uploadedBy; }
     public void setUploadedBy(String uploadedBy) { this.uploadedBy = uploadedBy; }
