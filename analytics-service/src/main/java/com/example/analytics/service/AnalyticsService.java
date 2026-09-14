@@ -1,35 +1,27 @@
 package com.example.analytics.service;
 
-import com.example.analytics.dto.AnalyticsDTO;
-import org.springframework.stereotype.Service;
+import com.example.analytics.dto.*; import com.example.analytics.model.AnalyticsSnapshot; import com.example.analytics.repository.AnalyticsSnapshotRepository;
+import com.fasterxml.jackson.core.type.TypeReference; import com.fasterxml.jackson.databind.*; import org.springframework.beans.factory.annotation.Value; import org.springframework.cache.annotation.*;
+import org.springframework.scheduling.annotation.Scheduled; import org.springframework.stereotype.Service; import org.springframework.web.client.RestTemplate; import org.springframework.web.util.UriComponentsBuilder;
+import java.time.*; import java.time.temporal.ChronoUnit; import java.util.*; import java.util.function.Function; import java.util.stream.Collectors;
 
-import java.util.HashMap;
-import java.util.Map;
+@Service public class AnalyticsService {
+ private final AnalyticsSnapshotRepository snapshots; private final RestTemplate http=new RestTemplate(); private final ObjectMapper json=new ObjectMapper().findAndRegisterModules(); private final String taskUrl; private final int pageSize;
+ public AnalyticsService(AnalyticsSnapshotRepository snapshots,@Value("${task-service.url:http://localhost:8082}")String taskUrl,@Value("${analytics.snapshot.page-size:200}")int pageSize){this.snapshots=snapshots;this.taskUrl=taskUrl;this.pageSize=pageSize;}
 
-@Service
-public class AnalyticsService {
+ @Cacheable(value="dashboards",key="#workspaceId.toString() + ':' + (#projectId == null ? 'all' : #projectId.toString())")
+ public AnalyticsDTO getAnalytics(Long workspaceId,Long projectId){requireWorkspace(workspaceId);Optional<AnalyticsSnapshot>s=projectId==null?snapshots.findFirstByWorkspaceIdAndProjectIdIsNullOrderByCapturedAtDesc(workspaceId):snapshots.findFirstByWorkspaceIdAndProjectIdOrderByCapturedAtDesc(workspaceId,projectId);if(!s.isPresent()){refreshSnapshots();s=projectId==null?snapshots.findFirstByWorkspaceIdAndProjectIdIsNullOrderByCapturedAtDesc(workspaceId):snapshots.findFirstByWorkspaceIdAndProjectIdOrderByCapturedAtDesc(workspaceId,projectId);}return s.map(this::toDto).orElseGet(()->empty(workspaceId,projectId));}
 
-    public AnalyticsDTO getAnalytics() {
-        Map<String, Long> categoryDist = new HashMap<>();
-        categoryDist.put("Backend Development", 5L);
-        categoryDist.put("Frontend UI/UX", 3L);
-        categoryDist.put("DevOps & Deployment", 2L);
+ @Scheduled(fixedDelayString="${analytics.snapshot.interval-ms:300000}",initialDelayString="${analytics.snapshot.initial-delay-ms:10000}")
+ @CacheEvict(value="dashboards",allEntries=true)
+ public void refreshSnapshots(){List<TaskRecord>tasks=fetchTasks();Map<Long,List<TaskRecord>>workspaces=tasks.stream().filter(t->t.workspaceId!=null).collect(Collectors.groupingBy(t->t.workspaceId));for(Map.Entry<Long,List<TaskRecord>>w:workspaces.entrySet()){save(w.getKey(),null,w.getValue());w.getValue().stream().filter(t->t.projectId!=null).collect(Collectors.groupingBy(t->t.projectId)).forEach((p,list)->save(w.getKey(),p,list));}}
 
-        Map<String, Long> statusDist = new HashMap<>();
-        statusDist.put("TODO", 3L);
-        statusDist.put("IN_PROGRESS", 3L);
-        statusDist.put("COMPLETED", 4L);
+ void save(Long workspace,Long project,List<TaskRecord> tasks){AnalyticsSnapshot s=new AnalyticsSnapshot();s.setWorkspaceId(workspace);s.setProjectId(project);s.setTotalTasks(tasks.size());long completed=tasks.stream().filter(t->"COMPLETED".equals(t.status)).count();s.setCompletedTasks(completed);s.setCompletionRate(tasks.isEmpty()?0:round(completed*100d/tasks.size()));s.setOverdueTasks(tasks.stream().filter(t->t.dueDate!=null&&t.dueDate.isBefore(LocalDateTime.now())&&!"COMPLETED".equals(t.status)).count());Map<String,Long>status=tasks.stream().collect(Collectors.groupingBy(t->Optional.ofNullable(t.status).orElse("UNKNOWN"),LinkedHashMap::new,Collectors.counting()));Map<String,Long>load=tasks.stream().filter(t->!"COMPLETED".equals(t.status)).collect(Collectors.groupingBy(t->Optional.ofNullable(t.assignee).orElse("UNASSIGNED"),LinkedHashMap::new,Collectors.counting()));s.setStatusJson(write(status));s.setWorkloadJson(write(load));List<TaskRecord>done=tasks.stream().filter(t->"COMPLETED".equals(t.status)&&t.createdAt!=null&&t.updatedAt!=null).collect(Collectors.toList());s.setAverageLeadTimeHours(average(done,t->hours(t.createdAt,t.updatedAt)));s.setAverageCycleTimeHours(average(done,t->cycleHours(t)));snapshots.save(s);}
 
-        Map<String, Long> priorityDist = new HashMap<>();
-        priorityDist.put("LOW", 2L);
-        priorityDist.put("MEDIUM", 4L);
-        priorityDist.put("HIGH", 3L);
-        priorityDist.put("URGENT", 1L);
-
-        long total = 10L;
-        long completed = 4L;
-        double completionRate = 40.0;
-
-        return new AnalyticsDTO(total, completed, completionRate, categoryDist, statusDist, priorityDist);
-    }
+ private List<TaskRecord> fetchTasks(){List<TaskRecord>all=new ArrayList<>();for(int page=0;;page++){String uri=UriComponentsBuilder.fromHttpUrl(taskUrl+"/api/tasks").queryParam("page",page).queryParam("size",pageSize).toUriString();try{JsonNode root=json.readTree(http.getForObject(uri,String.class));for(JsonNode n:root.path("data"))all.add(json.treeToValue(n,TaskRecord.class));if(page+1>=root.path("page").path("totalPages").asInt(1))break;}catch(Exception e){throw new IllegalStateException("Cannot build analytics snapshot from task-service",e);}}return all;}
+ private double cycleHours(TaskRecord task){try{JsonNode root=json.readTree(http.getForObject(taskUrl+"/api/tasks/"+task.id+"/history",String.class));LocalDateTime start=null,end=null;for(JsonNode h:root.path("data")){String to=h.path("toStatus").asText();LocalDateTime at=LocalDateTime.parse(h.path("changedAt").asText());if("COMPLETED".equals(to)&&end==null)end=at;if("IN_PROGRESS".equals(to))start=at;}return start!=null&&end!=null?hours(start,end):hours(task.createdAt,task.updatedAt);}catch(Exception e){return hours(task.createdAt,task.updatedAt);}}
+ private double average(List<TaskRecord>v,Function<TaskRecord,Double>f){return v.isEmpty()?0:round(v.stream().mapToDouble(f::apply).average().orElse(0));} private double hours(LocalDateTime a,LocalDateTime b){return Math.max(0,ChronoUnit.MINUTES.between(a,b)/60d);} private double round(double v){return Math.round(v*100d)/100d;}
+ private String write(Map<String,Long>v){try{return json.writeValueAsString(v);}catch(Exception e){throw new IllegalStateException(e);}} private Map<String,Long>read(String v){try{return json.readValue(v,new TypeReference<Map<String,Long>>(){});}catch(Exception e){return new LinkedHashMap<>();}}
+ private AnalyticsDTO toDto(AnalyticsSnapshot s){AnalyticsDTO d=new AnalyticsDTO();d.setWorkspaceId(s.getWorkspaceId());d.setProjectId(s.getProjectId());d.setTotalTasks(s.getTotalTasks());d.setCompletedTasks(s.getCompletedTasks());d.setOverdueTasks(s.getOverdueTasks());d.setCompletionRate(s.getCompletionRate());d.setAverageCycleTimeHours(s.getAverageCycleTimeHours());d.setAverageLeadTimeHours(s.getAverageLeadTimeHours());d.setStatusDistribution(read(s.getStatusJson()));d.setWorkloadByAssignee(read(s.getWorkloadJson()));d.setCapturedAt(s.getCapturedAt());return d;}
+ private AnalyticsDTO empty(Long w,Long p){AnalyticsDTO d=new AnalyticsDTO();d.setWorkspaceId(w);d.setProjectId(p);d.setCapturedAt(LocalDateTime.now());return d;} private void requireWorkspace(Long id){if(id==null)throw new IllegalArgumentException("X-Workspace-Id is required");}
 }
