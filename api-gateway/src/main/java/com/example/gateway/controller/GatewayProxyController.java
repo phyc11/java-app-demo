@@ -46,11 +46,14 @@ public class GatewayProxyController {
     @Value("${comment-service.url:http://localhost:8087}")
     private String commentServiceUrl;
 
+    @Value("${workspace-service.url:http://localhost:8092}")
+    private String workspaceServiceUrl;
+
     public GatewayProxyController(RestTemplate restTemplate) {
         this.restTemplate = restTemplate;
     }
 
-    @RequestMapping({"/api/auth/**", "/api/tasks/**", "/api/categories/**", "/api/analytics/**", "/api/export/**", "/api/notifications/**", "/api/search/**", "/api/files/**", "/api/time-tracking/**", "/api/projects/**", "/api/billing/**", "/api/comments/**"})
+    @RequestMapping({"/api/auth/**", "/api/tasks/**", "/api/categories/**", "/api/analytics/**", "/api/export/**", "/api/notifications/**", "/api/search/**", "/api/files/**", "/api/time-tracking/**", "/api/projects/**", "/api/billing/**", "/api/comments/**", "/api/workspaces/**"})
     public ResponseEntity<byte[]> proxyRequest(@RequestBody(required = false) byte[] body,
                                               HttpMethod method,
                                               HttpServletRequest request) {
@@ -79,6 +82,8 @@ public class GatewayProxyController {
             targetBaseUrl = billingServiceUrl;
         } else if (requestPath.startsWith("/api/comments")) {
             targetBaseUrl = commentServiceUrl;
+        } else if (requestPath.startsWith("/api/workspaces")) {
+            targetBaseUrl = workspaceServiceUrl;
         } else {
             targetBaseUrl = analyticsServiceUrl;
         }
