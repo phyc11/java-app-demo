@@ -53,7 +53,7 @@ public class GatewayProxyController {
         this.restTemplate = restTemplate;
     }
 
-    @RequestMapping({"/api/auth/**", "/api/tasks/**", "/api/categories/**", "/api/analytics/**", "/api/export/**", "/api/notifications/**", "/api/search/**", "/api/files/**", "/api/time-tracking/**", "/api/projects/**", "/api/billing/**", "/api/comments/**", "/api/workspaces/**"})
+    @RequestMapping({"/api/auth/**", "/api/users/**", "/api/tasks/**", "/api/categories/**", "/api/analytics/**", "/api/export/**", "/api/notifications/**", "/api/search/**", "/api/files/**", "/api/time-tracking/**", "/api/projects/**", "/api/billing/**", "/api/comments/**", "/api/workspaces/**"})
     public ResponseEntity<byte[]> proxyRequest(@RequestBody(required = false) byte[] body,
                                               HttpMethod method,
                                               HttpServletRequest request) {
@@ -64,7 +64,7 @@ public class GatewayProxyController {
         }
 
         String targetBaseUrl;
-        if (requestPath.startsWith("/api/auth")) {
+        if (requestPath.startsWith("/api/auth") || requestPath.startsWith("/api/users")) {
             targetBaseUrl = authServiceUrl;
         } else if (requestPath.startsWith("/api/tasks") || requestPath.startsWith("/api/categories")) {
             targetBaseUrl = taskServiceUrl;
