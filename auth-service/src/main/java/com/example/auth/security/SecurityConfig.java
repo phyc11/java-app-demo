@@ -23,6 +23,7 @@ public class SecurityConfig extends WebSecurityConfigurerAdapter {
 
     @Autowired
     private JwtAuthenticationFilter jwtAuthenticationFilter;
+    @Autowired private AuthRateLimitFilter authRateLimitFilter;
 
     @Override
     protected void configure(AuthenticationManagerBuilder auth) throws Exception {
@@ -47,10 +48,11 @@ public class SecurityConfig extends WebSecurityConfigurerAdapter {
             .sessionManagement().sessionCreationPolicy(SessionCreationPolicy.STATELESS)
             .and()
             .authorizeRequests()
-            .antMatchers("/api/auth/login", "/api/auth/register", "/h2-console/**").permitAll()
+            .antMatchers("/api/auth/login", "/api/auth/register", "/api/auth/refresh", "/api/auth/verify-email", "/api/auth/forgot-password", "/api/auth/reset-password", "/h2-console/**").permitAll()
             .anyRequest().authenticated();
 
         http.headers().frameOptions().disable();
         http.addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+        http.addFilterBefore(authRateLimitFilter, JwtAuthenticationFilter.class);
     }
 }

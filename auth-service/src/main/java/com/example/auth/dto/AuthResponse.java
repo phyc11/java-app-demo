@@ -7,6 +7,8 @@ public class AuthResponse {
     private String username;
     private String fullName;
     private Role role;
+    private String refreshToken;
+    private long expiresIn;
 
     public AuthResponse() {}
 
@@ -28,4 +30,6 @@ public class AuthResponse {
 
     public Role getRole() { return role; }
     public void setRole(Role role) { this.role = role; }
+    public String getRefreshToken(){return refreshToken;} public void setRefreshToken(String value){refreshToken=value;}
+    public long getExpiresIn(){return expiresIn;} public void setExpiresIn(long value){expiresIn=value;}
 }

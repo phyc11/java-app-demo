@@ -92,8 +92,10 @@ public class GatewayProxyController {
 
         HttpHeaders headers = new HttpHeaders();
         Collections.list(request.getHeaderNames()).forEach(headerName -> {
-            headers.add(headerName, request.getHeader(headerName));
+            if (!headerName.equalsIgnoreCase("X-User") && !headerName.equalsIgnoreCase("X-Role") && !headerName.equalsIgnoreCase("X-Workspace-Role") && !headerName.equalsIgnoreCase("Host") && !headerName.equalsIgnoreCase("Content-Length")) headers.add(headerName, request.getHeader(headerName));
         });
+        String trustedUser=(String)request.getAttribute("trustedUser"); String trustedRole=(String)request.getAttribute("trustedRole");
+        if(trustedUser!=null){headers.set("X-User",trustedUser);headers.set("X-Role",trustedRole);String workspaceRole=(String)request.getAttribute("trustedWorkspaceRole");if(workspaceRole!=null)headers.set("X-Workspace-Role",workspaceRole);}
 
         HttpEntity<byte[]> httpEntity = new HttpEntity<>(body, headers);
 

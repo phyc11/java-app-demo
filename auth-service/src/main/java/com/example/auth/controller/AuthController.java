@@ -31,6 +31,11 @@ public class AuthController {
         AuthResponse response = authService.register(request);
         return ApiResponse.ok("User registered successfully", response);
     }
+    @PostMapping("/refresh") public ApiResponse<AuthResponse> refresh(@RequestBody RefreshTokenRequest r){return ApiResponse.ok("Token refreshed",authService.refresh(r.getRefreshToken()));}
+    @PostMapping("/logout") public ApiResponse<Void> logout(@RequestBody RefreshTokenRequest r){authService.logout(r.getRefreshToken());return ApiResponse.ok("Logged out",null);}
+    @PostMapping("/verify-email") public ApiResponse<Void> verify(@RequestBody TokenRequest r){authService.verifyEmail(r.getToken());return ApiResponse.ok("Email verified",null);}
+    @PostMapping("/forgot-password") public ApiResponse<Void> forgot(@RequestBody ForgotPasswordRequest r){authService.forgotPassword(r.getUsername());return ApiResponse.ok("If the account exists, reset instructions were sent",null);}
+    @PostMapping("/reset-password") public ApiResponse<Void> reset(@RequestBody TokenPasswordRequest r){authService.resetPassword(r);return ApiResponse.ok("Password reset",null);}
 
     @GetMapping("/me")
     public ApiResponse<UserDTO> getMe(Principal principal) {
