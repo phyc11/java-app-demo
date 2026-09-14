@@ -4,9 +4,6 @@ import com.example.common.dto.ApiResponse;
 import com.example.file.dto.FileUploadResponseDto;
 import com.example.file.model.FileMetadata;
 import com.example.file.service.FileStorageService;
-import org.springframework.core.io.Resource;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -28,48 +25,37 @@ public class FileController {
             @RequestParam("file") MultipartFile file,
             @RequestParam(value = "entityType", defaultValue = "TASK") String entityType,
             @RequestParam(value = "entityId", required = false) Long entityId,
-            @RequestParam(value = "uploadedBy", defaultValue = "system") String uploadedBy) {
+            @RequestHeader("X-Workspace-Id") Long workspaceId,
+            @RequestHeader("X-User") String uploadedBy) {
 
-        FileUploadResponseDto response = fileStorageService.storeFile(file, entityType, entityId, uploadedBy);
+        FileUploadResponseDto response = fileStorageService.storeFile(file, entityType, entityId, workspaceId, uploadedBy);
         return ResponseEntity.ok(ApiResponse.ok("File uploaded successfully", response));
     }
 
     @GetMapping("/{fileId}")
-    public ResponseEntity<ApiResponse<FileUploadResponseDto>> getFileMetadata(@PathVariable Long fileId) {
-        FileMetadata metadata = fileStorageService.getFileMetadata(fileId);
+    public ResponseEntity<ApiResponse<FileUploadResponseDto>> getFileMetadata(@PathVariable Long fileId,
+            @RequestHeader("X-Workspace-Id") Long workspaceId) {
+        FileMetadata metadata = fileStorageService.getFileMetadata(fileId, workspaceId);
         FileUploadResponseDto dto = fileStorageService.mapToDto(metadata);
         return ResponseEntity.ok(ApiResponse.ok("File metadata retrieved", dto));
-    }
-
-    @GetMapping("/download/{fileId}")
-    public ResponseEntity<Resource> downloadFile(
-            @PathVariable Long fileId,
-            @RequestParam("token") String token,
-            @RequestParam("expires") long expires) {
-
-        Resource resource = fileStorageService.loadFileAsResource(fileId, token, expires);
-        FileMetadata metadata = fileStorageService.getFileMetadata(fileId);
-
-        String contentType = metadata.getContentType() != null ? metadata.getContentType() : "application/octet-stream";
-
-        return ResponseEntity.ok()
-                .contentType(MediaType.parseMediaType(contentType))
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + metadata.getOriginalFileName() + "\"")
-                .body(resource);
     }
 
     @GetMapping("/entity/{entityType}/{entityId}")
     public ResponseEntity<ApiResponse<List<FileUploadResponseDto>>> getFilesByEntity(
             @PathVariable String entityType,
-            @PathVariable Long entityId) {
+            @PathVariable Long entityId,
+            @RequestHeader("X-Workspace-Id") Long workspaceId) {
 
-        List<FileUploadResponseDto> files = fileStorageService.getFilesByEntity(entityType, entityId);
+        List<FileUploadResponseDto> files = fileStorageService.getFilesByEntity(entityType, entityId, workspaceId);
         return ResponseEntity.ok(ApiResponse.ok("Found " + files.size() + " attachments for " + entityType + " #" + entityId, files));
     }
 
     @DeleteMapping("/{fileId}")
-    public ResponseEntity<ApiResponse<Void>> deleteFile(@PathVariable Long fileId) {
-        fileStorageService.deleteFile(fileId);
+    public ResponseEntity<ApiResponse<Void>> deleteFile(@PathVariable Long fileId,
+            @RequestHeader("X-Workspace-Id") Long workspaceId,
+            @RequestHeader("X-User") String username,
+            @RequestHeader(value="X-Workspace-Role", required=false) String workspaceRole) {
+        fileStorageService.deleteFile(fileId, workspaceId, username, workspaceRole);
         return ResponseEntity.ok(ApiResponse.ok("Attachment deleted successfully", null));
     }
 }

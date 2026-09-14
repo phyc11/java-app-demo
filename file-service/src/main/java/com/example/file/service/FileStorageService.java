@@ -3,194 +3,120 @@ package com.example.file.service;
 import com.example.file.dto.FileUploadResponseDto;
 import com.example.file.model.FileMetadata;
 import com.example.file.repository.FileMetadataRepository;
+import org.apache.tika.Tika;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.io.Resource;
-import org.springframework.core.io.UrlResource;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
+import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.*;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
+import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
 
 import javax.annotation.PostConstruct;
 import java.io.IOException;
-import java.net.MalformedURLException;
-import java.nio.file.*;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.time.Instant;
-import java.util.Arrays;
-import java.util.List;
-import java.util.UUID;
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
 public class FileStorageService {
+    private final FileMetadataRepository repository;
+    private final S3Client s3;
+    private final S3Presigner presigner;
+    private final VirusScanner virusScanner;
+    private final FileAccessService access;
+    private final Tika tika = new Tika();
+    private final String bucket;
+    private final long maxSize;
+    private final int expirationMinutes;
+    private final Set<String> allowedTypes;
+    private final int cleanupAgeDays;
 
-    @Value("${file.storage.local-dir:./uploads}")
-    private String uploadDir;
-
-    @Value("${file.storage.storage-type:LOCAL}")
-    private String storageType;
-
-    @Value("${file.storage.presigned-url-expiration-minutes:30}")
-    private int presignedUrlExpirationMinutes;
-
-    @Value("${file.storage.allowed-types:image/jpeg,image/png,image/gif,application/pdf,application/zip,text/plain}")
-    private String allowedTypes;
-
-    private final FileMetadataRepository fileMetadataRepository;
-    private Path rootStoragePath;
-    private final String secretKey = "TaskCraftSecretKeyForPresignedUrl";
-
-    public FileStorageService(FileMetadataRepository fileMetadataRepository) {
-        this.fileMetadataRepository = fileMetadataRepository;
+    public FileStorageService(FileMetadataRepository repository, S3Client s3, S3Presigner presigner,
+                              VirusScanner virusScanner, FileAccessService access,
+                              @Value("${file.storage.bucket:taskcraft-files}") String bucket,
+                              @Value("${file.storage.max-size-bytes:10485760}") long maxSize,
+                              @Value("${file.storage.presigned-url-expiration-minutes:15}") int expirationMinutes,
+                              @Value("${file.storage.allowed-types}") String allowedTypes,
+                              @Value("${file.cleanup.age-days:1}") int cleanupAgeDays) {
+        this.repository=repository; this.s3=s3; this.presigner=presigner; this.virusScanner=virusScanner;
+        this.access=access; this.bucket=bucket; this.maxSize=maxSize; this.expirationMinutes=expirationMinutes;
+        this.allowedTypes=Arrays.stream(allowedTypes.split(",")).map(String::trim).map(String::toLowerCase).collect(Collectors.toSet());
+        this.cleanupAgeDays=cleanupAgeDays;
     }
 
     @PostConstruct
-    public void init() {
+    void createBucket() {
+        try { s3.headBucket(HeadBucketRequest.builder().bucket(bucket).build()); }
+        catch (S3Exception e) { s3.createBucket(CreateBucketRequest.builder().bucket(bucket).build()); }
+    }
+
+    @Transactional
+    public FileUploadResponseDto storeFile(MultipartFile file, String entityType, Long entityId,
+                                           Long workspaceId, String uploadedBy) {
+        requireIdentity(workspaceId, uploadedBy);
+        if (file.isEmpty()) throw new IllegalArgumentException("Cannot upload an empty file");
+        if (file.getSize() > maxSize) throw new IllegalArgumentException("File exceeds maximum size of " + maxSize + " bytes");
+        String type = entityType == null ? "TASK" : entityType.trim().toUpperCase();
+        if ("TASK".equals(type)) access.assertTaskInWorkspace(entityId, workspaceId);
+        byte[] bytes;
+        try { bytes=file.getBytes(); } catch (IOException e) { throw new IllegalArgumentException("Cannot read upload", e); }
+        String original=StringUtils.cleanPath(Optional.ofNullable(file.getOriginalFilename()).orElse("unnamed"));
+        if (original.contains("..")) throw new IllegalArgumentException("Invalid filename");
+        String detected;
+        try { detected=tika.detect(bytes, original).toLowerCase(); } catch (Exception e) { throw new IllegalArgumentException("Cannot detect MIME type",e); }
+        if (!allowedTypes.contains(detected)) throw new IllegalArgumentException("Detected MIME type is not allowed: " + detected);
+        virusScanner.assertClean(bytes);
+        String key=workspaceId + "/" + UUID.randomUUID();
+        s3.putObject(PutObjectRequest.builder().bucket(bucket).key(key).contentType(detected).contentLength((long)bytes.length).build(), RequestBody.fromBytes(bytes));
         try {
-            this.rootStoragePath = Paths.get(uploadDir).toAbsolutePath().normalize();
-            Files.createDirectories(this.rootStoragePath);
-        } catch (Exception ex) {
-            throw new RuntimeException("Could not initialize file storage directory!", ex);
-        }
+            FileMetadata metadata=repository.save(new FileMetadata(original,key,detected,(long)bytes.length,"S3",type,entityId,workspaceId,uploadedBy));
+            return mapToDto(metadata);
+        } catch (RuntimeException e) { deleteObject(key); throw e; }
     }
 
-    public FileUploadResponseDto storeFile(MultipartFile file, String entityType, Long entityId, String uploadedBy) {
-        // 1. Validate File Empty & Content Type
-        if (file.isEmpty()) {
-            throw new IllegalArgumentException("Cannot upload an empty file!");
-        }
-
-        String contentType = file.getContentType();
-        List<String> allowedList = Arrays.asList(allowedTypes.split(","));
-        if (contentType != null && !allowedList.contains(contentType.toLowerCase())) {
-            throw new IllegalArgumentException("File type '" + contentType + "' is not supported. Allowed types: " + allowedTypes);
-        }
-
-        // 2. Generate unique filename
-        String originalFileName = StringUtils.cleanPath(file.getOriginalFilename() != null ? file.getOriginalFilename() : "unnamed");
-        String extension = "";
-        int extIndex = originalFileName.lastIndexOf(".");
-        if (extIndex > 0) {
-            extension = originalFileName.substring(extIndex);
-        }
-        String storedFileName = UUID.randomUUID().toString() + extension;
-
-        // 3. Save file to Disk (or S3/MinIO provider)
-        try {
-            Path targetLocation = this.rootStoragePath.resolve(storedFileName);
-            Files.copy(file.getInputStream(), targetLocation, StandardCopyOption.REPLACE_EXISTING);
-        } catch (IOException ex) {
-            throw new RuntimeException("Could not store file " + originalFileName + ". Please try again!", ex);
-        }
-
-        // 4. Save Metadata to DB
-        FileMetadata metadata = new FileMetadata(
-                originalFileName,
-                storedFileName,
-                contentType,
-                file.getSize(),
-                storageType,
-                entityType != null ? entityType.toUpperCase() : "TASK",
-                entityId,
-                uploadedBy
-        );
-        metadata = fileMetadataRepository.save(metadata);
-
-        return mapToDto(metadata);
+    public FileMetadata getFileMetadata(Long fileId, Long workspaceId) {
+        FileMetadata metadata=repository.findById(fileId).orElseThrow(() -> new IllegalArgumentException("File not found: " + fileId));
+        assertWorkspace(metadata, workspaceId); return metadata;
     }
 
-    public Resource loadFileAsResource(Long fileId, String token, long expires) {
-        FileMetadata metadata = fileMetadataRepository.findById(fileId)
-                .orElseThrow(() -> new IllegalArgumentException("File attachment not found with ID: " + fileId));
-
-        // Validate Presigned Token
-        validatePresignedToken(fileId, token, expires);
-
-        try {
-            Path filePath = this.rootStoragePath.resolve(metadata.getStoredFileName()).normalize();
-            Resource resource = new UrlResource(filePath.toUri());
-            if (resource.exists() && resource.isReadable()) {
-                return resource;
-            } else {
-                throw new RuntimeException("File not found on storage disk: " + metadata.getOriginalFileName());
-            }
-        } catch (MalformedURLException ex) {
-            throw new RuntimeException("File path is invalid!", ex);
-        }
+    public List<FileUploadResponseDto> getFilesByEntity(String entityType, Long entityId, Long workspaceId) {
+        return repository.findByEntityTypeAndEntityId(entityType.toUpperCase(),entityId).stream()
+                .filter(f -> workspaceId.equals(f.getWorkspaceId())).map(this::mapToDto).collect(Collectors.toList());
     }
 
-    public FileMetadata getFileMetadata(Long fileId) {
-        return fileMetadataRepository.findById(fileId)
-                .orElseThrow(() -> new IllegalArgumentException("File attachment not found with ID: " + fileId));
-    }
-
-    public List<FileUploadResponseDto> getFilesByEntity(String entityType, Long entityId) {
-        return fileMetadataRepository.findByEntityTypeAndEntityId(entityType.toUpperCase(), entityId)
-                .stream()
-                .map(this::mapToDto)
-                .collect(Collectors.toList());
-    }
-
-    public void deleteFile(Long fileId) {
-        FileMetadata metadata = getFileMetadata(fileId);
-        try {
-            Path filePath = this.rootStoragePath.resolve(metadata.getStoredFileName());
-            Files.deleteIfExists(filePath);
-        } catch (IOException ignored) {}
-        fileMetadataRepository.delete(metadata);
+    @Transactional
+    public void deleteFile(Long fileId, Long workspaceId, String username, String workspaceRole) {
+        FileMetadata metadata=getFileMetadata(fileId,workspaceId);
+        if (!metadata.getUploadedBy().equalsIgnoreCase(username) && !"OWNER".equals(workspaceRole) && !"ADMIN".equals(workspaceRole))
+            throw new SecurityException("Only uploader, workspace owner or admin can delete this file");
+        deleteObject(metadata.getStoredFileName()); repository.delete(metadata);
     }
 
     public FileUploadResponseDto mapToDto(FileMetadata metadata) {
-        long expiresTimestamp = Instant.now().getEpochSecond() + (presignedUrlExpirationMinutes * 60L);
-        String token = generatePresignedToken(metadata.getId(), expiresTimestamp);
-
-        String presignedUrl = "/api/files/download/" + metadata.getId() + "?token=" + token + "&expires=" + expiresTimestamp;
-
-        FileUploadResponseDto dto = new FileUploadResponseDto();
-        dto.setId(metadata.getId());
-        dto.setOriginalFileName(metadata.getOriginalFileName());
-        dto.setContentType(metadata.getContentType());
-        dto.setFileSize(metadata.getFileSize());
-        dto.setEntityType(metadata.getEntityType());
-        dto.setEntityId(metadata.getEntityId());
-        dto.setUploadedBy(metadata.getUploadedBy());
-        dto.setUploadedAt(metadata.getUploadedAt());
-        dto.setPresignedDownloadUrl(presignedUrl);
-        dto.setExpirationMinutes(presignedUrlExpirationMinutes);
-        return dto;
+        GetObjectRequest get=GetObjectRequest.builder().bucket(bucket).key(metadata.getStoredFileName())
+                .responseContentDisposition("attachment; filename=\"" + metadata.getOriginalFileName().replace("\"","") + "\"").build();
+        String url=presigner.presignGetObject(GetObjectPresignRequest.builder().signatureDuration(Duration.ofMinutes(expirationMinutes)).getObjectRequest(get).build()).url().toString();
+        FileUploadResponseDto dto=new FileUploadResponseDto(); dto.setId(metadata.getId()); dto.setOriginalFileName(metadata.getOriginalFileName());
+        dto.setContentType(metadata.getContentType()); dto.setFileSize(metadata.getFileSize()); dto.setEntityType(metadata.getEntityType());
+        dto.setEntityId(metadata.getEntityId()); dto.setWorkspaceId(metadata.getWorkspaceId()); dto.setUploadedBy(metadata.getUploadedBy());
+        dto.setUploadedAt(metadata.getUploadedAt()); dto.setPresignedDownloadUrl(url); dto.setExpirationMinutes(expirationMinutes); return dto;
     }
 
-    private String generatePresignedToken(Long fileId, long expiresTimestamp) {
-        String raw = fileId + ":" + expiresTimestamp + ":" + secretKey;
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(raw.getBytes());
-            StringBuilder hexString = new StringBuilder();
-            for (byte b : hash) {
-                String hex = Integer.toHexString(0xff & b);
-                if (hex.length() == 1) hexString.append('0');
-                hexString.append(hex);
-            }
-            return hexString.toString();
-        } catch (NoSuchAlgorithmException e) {
-            return String.valueOf(raw.hashCode());
-        }
+    @Scheduled(cron="${file.cleanup.cron:0 0 3 * * *}")
+    @Transactional
+    public void cleanupOrphans() {
+        repository.findByUploadedAtBefore(LocalDateTime.now().minusDays(cleanupAgeDays)).stream()
+                .filter(f -> "TASK".equals(f.getEntityType()) && !access.taskExists(f.getEntityId(),f.getWorkspaceId()))
+                .forEach(f -> { deleteObject(f.getStoredFileName()); repository.delete(f); });
     }
 
-    private void validatePresignedToken(Long fileId, String token, long expiresTimestamp) {
-        if (token == null || expiresTimestamp <= 0) {
-            throw new IllegalArgumentException("Access denied: missing presigned download token!");
-        }
-
-        if (Instant.now().getEpochSecond() > expiresTimestamp) {
-            throw new IllegalArgumentException("Access denied: presigned URL has expired!");
-        }
-
-        String expectedToken = generatePresignedToken(fileId, expiresTimestamp);
-        if (!expectedToken.equals(token)) {
-            throw new IllegalArgumentException("Access denied: invalid presigned URL signature!");
-        }
-    }
+    private void requireIdentity(Long workspaceId,String user){if(workspaceId==null)throw new IllegalArgumentException("X-Workspace-Id is required");if(!StringUtils.hasText(user))throw new SecurityException("Trusted X-User is required");}
+    private void assertWorkspace(FileMetadata f,Long id){if(id==null||!id.equals(f.getWorkspaceId()))throw new SecurityException("File does not belong to this workspace");}
+    private void deleteObject(String key){s3.deleteObject(DeleteObjectRequest.builder().bucket(bucket).key(key).build());}
 }

@@ -24,6 +24,9 @@ public class FileMetadata {
     private String entityType; // TASK, COMMENT
     private Long entityId;
 
+    @Column(nullable = false)
+    private Long workspaceId;
+
     private String uploadedBy;
     private LocalDateTime uploadedAt;
 
@@ -32,7 +35,8 @@ public class FileMetadata {
     }
 
     public FileMetadata(String originalFileName, String storedFileName, String contentType,
-                        Long fileSize, String storageType, String entityType, Long entityId, String uploadedBy) {
+                        Long fileSize, String storageType, String entityType, Long entityId,
+                        Long workspaceId, String uploadedBy) {
         this.originalFileName = originalFileName;
         this.storedFileName = storedFileName;
         this.contentType = contentType;
@@ -40,6 +44,7 @@ public class FileMetadata {
         this.storageType = storageType;
         this.entityType = entityType;
         this.entityId = entityId;
+        this.workspaceId = workspaceId;
         this.uploadedBy = uploadedBy;
         this.uploadedAt = LocalDateTime.now();
     }
@@ -67,6 +72,9 @@ public class FileMetadata {
 
     public Long getEntityId() { return entityId; }
     public void setEntityId(Long entityId) { this.entityId = entityId; }
+
+    public Long getWorkspaceId() { return workspaceId; }
+    public void setWorkspaceId(Long workspaceId) { this.workspaceId = workspaceId; }
 
     public String getUploadedBy() { return uploadedBy; }
     public void setUploadedBy(String uploadedBy) { this.uploadedBy = uploadedBy; }
