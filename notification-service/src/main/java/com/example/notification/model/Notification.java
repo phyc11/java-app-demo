@@ -20,7 +20,14 @@ public class Notification {
     @Column(length = 1000, nullable = false)
     private String message;
 
-    private String type; // WELCOME, DUE_SOON, OVERDUE, ASSIGNED, SYSTEM
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 30)
+    private NotificationType type;
+
+    private Long resourceId;
+
+    @Column(length = 40)
+    private String resourceType;
 
     private boolean isRead = false;
 
@@ -36,11 +43,14 @@ public class Notification {
 
     public Notification() {}
 
-    public Notification(String recipient, String title, String message, String type) {
+    public Notification(String recipient, String title, String message, NotificationType type,
+                        Long resourceId, String resourceType) {
         this.recipient = recipient;
         this.title = title;
         this.message = message;
         this.type = type;
+        this.resourceId = resourceId;
+        this.resourceType = resourceType;
         this.isRead = false;
         this.timestamp = LocalDateTime.now();
     }
@@ -57,8 +67,14 @@ public class Notification {
     public String getMessage() { return message; }
     public void setMessage(String message) { this.message = message; }
 
-    public String getType() { return type; }
-    public void setType(String type) { this.type = type; }
+    public NotificationType getType() { return type; }
+    public void setType(NotificationType type) { this.type = type; }
+
+    public Long getResourceId() { return resourceId; }
+    public void setResourceId(Long resourceId) { this.resourceId = resourceId; }
+
+    public String getResourceType() { return resourceType; }
+    public void setResourceType(String resourceType) { this.resourceType = resourceType; }
 
     public boolean isRead() { return isRead; }
     public void setRead(boolean read) { isRead = read; }
