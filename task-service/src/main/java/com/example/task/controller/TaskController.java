@@ -13,6 +13,8 @@ import javax.validation.Valid;
 import java.security.Principal;
 import java.util.List;
 import java.util.Map;
+import org.springframework.data.domain.Page;
+import com.example.task.model.TaskStatusHistory;
 
 @RestController
 @RequestMapping("/api/tasks")
@@ -30,14 +32,21 @@ public class TaskController {
             @RequestParam(required = false) Status status,
             @RequestParam(required = false) Priority priority,
             @RequestParam(required = false) Long categoryId,
-            @RequestParam(required = false) String search) {
-        List<TaskDTO> tasks = taskService.getAllTasks(status, priority, categoryId, search);
-        return ApiResponse.ok("Tasks retrieved successfully", tasks);
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) Long workspaceId,
+            @RequestParam(required = false) Long projectId,
+            @RequestParam(required = false) String assignee,
+            @RequestParam(required = false) Long parentTaskId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = "position") String sort) {
+        Page<TaskDTO> tasks = taskService.getTasks(workspaceId,projectId,assignee,parentTaskId,status,priority,categoryId,search,page,size,sort);
+        return ApiResponse.okPage("Tasks retrieved successfully", tasks.getContent(), page, size, tasks.getTotalElements(), tasks.getTotalPages());
     }
 
     @GetMapping("/stats")
-    public ApiResponse<TaskStatsDTO> getStats() {
-        TaskStatsDTO stats = taskService.getStats();
+    public ApiResponse<TaskStatsDTO> getStats(@RequestParam(required=false) Long workspaceId) {
+        TaskStatsDTO stats = taskService.getStats(workspaceId);
         return ApiResponse.ok("Task stats retrieved successfully", stats);
     }
 
@@ -61,17 +70,17 @@ public class TaskController {
     }
 
     @PatchMapping("/{id}/status")
-    public ApiResponse<TaskDTO> updateTaskStatus(@PathVariable Long id, @RequestBody Map<String, String> body) {
+    public ApiResponse<TaskDTO> updateTaskStatus(@PathVariable Long id, @RequestBody Map<String, String> body, Principal principal) {
         Status status = Status.valueOf(body.get("status"));
-        TaskDTO updatedTask = taskService.updateTaskStatus(id, status);
+        TaskDTO updatedTask = taskService.updateTaskStatus(id, status, principal == null ? "User" : principal.getName());
         return ApiResponse.ok("Task status updated successfully", updatedTask);
     }
 
     @PatchMapping("/{id}/move")
-    public ApiResponse<TaskDTO> moveTask(@PathVariable Long id, @RequestBody Map<String, Object> body) {
+    public ApiResponse<TaskDTO> moveTask(@PathVariable Long id, @RequestBody Map<String, Object> body, Principal principal) {
         Status status = Status.valueOf((String) body.get("status"));
         Integer position = body.get("position") != null ? (Integer) body.get("position") : null;
-        TaskDTO updatedTask = taskService.moveTask(id, status, position);
+        TaskDTO updatedTask = taskService.moveTask(id, status, position, principal == null ? "User" : principal.getName());
         return ApiResponse.ok("Task moved successfully", updatedTask);
     }
 
@@ -80,4 +89,15 @@ public class TaskController {
         taskService.deleteTask(id);
         return ApiResponse.ok("Task deleted successfully", null);
     }
+
+    @PostMapping("/{id}/watchers/{username}")
+    public ApiResponse<TaskDTO> addWatcher(@PathVariable Long id,@PathVariable String username){return ApiResponse.ok("Watcher added",taskService.addWatcher(id,username));}
+    @DeleteMapping("/{id}/watchers/{username}")
+    public ApiResponse<TaskDTO> removeWatcher(@PathVariable Long id,@PathVariable String username){return ApiResponse.ok("Watcher removed",taskService.removeWatcher(id,username));}
+    @PostMapping("/{id}/dependencies/{dependsOnId}")
+    public ApiResponse<TaskDTO> addDependency(@PathVariable Long id,@PathVariable Long dependsOnId){return ApiResponse.ok("Dependency added",taskService.addDependency(id,dependsOnId));}
+    @DeleteMapping("/{id}/dependencies/{dependsOnId}")
+    public ApiResponse<Void> removeDependency(@PathVariable Long id,@PathVariable Long dependsOnId){taskService.removeDependency(id,dependsOnId);return ApiResponse.ok("Dependency removed",null);}
+    @GetMapping("/{id}/history")
+    public ApiResponse<List<TaskStatusHistory>> history(@PathVariable Long id){return ApiResponse.ok("History retrieved",taskService.getHistory(id));}
 }

@@ -7,9 +7,18 @@ import com.example.task.model.Task;
 import javax.validation.constraints.NotBlank;
 import javax.validation.constraints.Size;
 import java.time.LocalDateTime;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 public class TaskDTO {
     private Long id;
+    private Long version;
+    private Long workspaceId;
+    private Long projectId;
+    private Long parentTaskId;
+    private String assignee;
+    private Set<String> watchers = new LinkedHashSet<>();
+    private Set<Long> dependencyIds = new LinkedHashSet<>();
 
     @NotBlank(message = "Tiêu đề Task không được để trống!")
     @Size(max = 255, message = "Tiêu đề Task tối đa 255 ký tự!")
@@ -33,6 +42,12 @@ public class TaskDTO {
 
     public TaskDTO(Task task) {
         this.id = task.getId();
+        this.version = task.getVersion();
+        this.workspaceId = task.getWorkspaceId();
+        this.projectId = task.getProjectId();
+        this.parentTaskId = task.getParentTaskId();
+        this.assignee = task.getAssignee();
+        this.watchers = new LinkedHashSet<>(task.getWatchers());
         this.title = task.getTitle();
         this.description = task.getDescription();
         this.status = task.getStatus();
@@ -51,6 +66,20 @@ public class TaskDTO {
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
+    public Long getVersion() { return version; }
+    public void setVersion(Long version) { this.version = version; }
+    public Long getWorkspaceId() { return workspaceId; }
+    public void setWorkspaceId(Long workspaceId) { this.workspaceId = workspaceId; }
+    public Long getProjectId() { return projectId; }
+    public void setProjectId(Long projectId) { this.projectId = projectId; }
+    public Long getParentTaskId() { return parentTaskId; }
+    public void setParentTaskId(Long parentTaskId) { this.parentTaskId = parentTaskId; }
+    public String getAssignee() { return assignee; }
+    public void setAssignee(String assignee) { this.assignee = assignee; }
+    public Set<String> getWatchers() { return watchers; }
+    public void setWatchers(Set<String> watchers) { this.watchers = watchers; }
+    public Set<Long> getDependencyIds() { return dependencyIds; }
+    public void setDependencyIds(Set<Long> dependencyIds) { this.dependencyIds = dependencyIds; }
 
     public String getTitle() { return title; }
     public void setTitle(String title) { this.title = title; }
