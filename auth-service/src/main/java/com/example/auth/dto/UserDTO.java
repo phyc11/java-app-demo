@@ -9,6 +9,7 @@ public class UserDTO {
     private String fullName;
     private String avatarColor;
     private Role role;
+    private String email; private boolean emailVerified;
 
     public UserDTO() {}
 
@@ -19,6 +20,7 @@ public class UserDTO {
             this.fullName = user.getFullName();
             this.avatarColor = user.getAvatarColor() != null ? user.getAvatarColor() : "#6366f1";
             this.role = user.getRole();
+            this.email=user.getEmail(); this.emailVerified=user.isEmailVerified();
         }
     }
 
@@ -36,4 +38,5 @@ public class UserDTO {
 
     public Role getRole() { return role; }
     public void setRole(Role role) { this.role = role; }
+    public String getEmail(){return email;} public void setEmail(String v){email=v;} public boolean isEmailVerified(){return emailVerified;} public void setEmailVerified(boolean v){emailVerified=v;}
 }

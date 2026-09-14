@@ -1,100 +1,22 @@
 package com.example.auth.service;
-
-import com.example.common.exception.ResourceNotFoundException;
-import com.example.auth.dto.*;
-import com.example.auth.model.Role;
-import com.example.auth.model.User;
-import com.example.auth.repository.UserRepository;
-import com.example.auth.security.JwtTokenProvider;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.stereotype.Service;
-
+import com.example.auth.dto.*; import com.example.auth.model.*; import com.example.auth.repository.UserRepository; import com.example.auth.security.JwtTokenProvider; import com.example.common.exception.ResourceNotFoundException;
+import org.springframework.security.authentication.*; import org.springframework.security.core.*; import org.springframework.security.core.context.SecurityContextHolder; import org.springframework.security.crypto.password.PasswordEncoder; import org.springframework.stereotype.Service; import org.springframework.transaction.annotation.Transactional;
+import java.util.Locale;
 @Service
 public class AuthService {
-
-    private final AuthenticationManager authenticationManager;
-    private final UserRepository userRepository;
-    private final PasswordEncoder passwordEncoder;
-    private final JwtTokenProvider tokenProvider;
-
-    @Autowired
-    public AuthService(AuthenticationManager authenticationManager, UserRepository userRepository,
-                       PasswordEncoder passwordEncoder, JwtTokenProvider tokenProvider) {
-        this.authenticationManager = authenticationManager;
-        this.userRepository = userRepository;
-        this.passwordEncoder = passwordEncoder;
-        this.tokenProvider = tokenProvider;
-    }
-
-    public AuthResponse login(LoginRequest request) {
-        Authentication authentication = authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword())
-        );
-
-        SecurityContextHolder.getContext().setAuthentication(authentication);
-        String token = tokenProvider.generateToken(authentication);
-
-        User user = userRepository.findByUsername(request.getUsername()).orElseThrow();
-        return new AuthResponse(token, user.getUsername(), user.getFullName(), user.getRole());
-    }
-
-    public AuthResponse register(RegisterRequest request) {
-        if (userRepository.existsByUsername(request.getUsername())) {
-            throw new IllegalArgumentException("Username already exists");
-        }
-
-        Role role = request.getRole() != null ? request.getRole() : Role.ROLE_USER;
-        User user = new User(
-                request.getUsername(),
-                passwordEncoder.encode(request.getPassword()),
-                request.getFullName(),
-                role
-        );
-
-        userRepository.save(user);
-
-        Authentication authentication = authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword())
-        );
-
-        SecurityContextHolder.getContext().setAuthentication(authentication);
-        String token = tokenProvider.generateToken(authentication);
-
-        return new AuthResponse(token, user.getUsername(), user.getFullName(), user.getRole());
-    }
-
-    public UserDTO getCurrentUser(String username) {
-        User user = userRepository.findByUsername(username).orElse(null);
-        return user != null ? new UserDTO(user) : null;
-    }
-
-    public UserDTO updateProfile(String username, UpdateProfileRequest request) {
-        User user = userRepository.findByUsername(username)
-                .orElseThrow(() -> new ResourceNotFoundException("User", "username", username));
-
-        user.setFullName(request.getFullName());
-        if (request.getAvatarColor() != null && !request.getAvatarColor().isBlank()) {
-            user.setAvatarColor(request.getAvatarColor());
-        }
-
-        User updatedUser = userRepository.save(user);
-        return new UserDTO(updatedUser);
-    }
-
-    public void changePassword(String username, ChangePasswordRequest request) {
-        User user = userRepository.findByUsername(username)
-                .orElseThrow(() -> new ResourceNotFoundException("User", "username", username));
-
-        if (!passwordEncoder.matches(request.getOldPassword(), user.getPassword())) {
-            throw new IllegalArgumentException("Mật khẩu cũ không chính xác!");
-        }
-
-        user.setPassword(passwordEncoder.encode(request.getNewPassword()));
-        userRepository.save(user);
-    }
+ private final AuthenticationManager authenticationManager;private final UserRepository users;private final PasswordEncoder encoder;private final JwtTokenProvider jwt;private final TokenService tokens;private final AuthMailService mail;
+ public AuthService(AuthenticationManager a,UserRepository u,PasswordEncoder e,JwtTokenProvider j,TokenService t,AuthMailService m){authenticationManager=a;users=u;encoder=e;jwt=j;tokens=t;mail=m;}
+ public AuthResponse login(LoginRequest request){User user=find(request.getUsername());if(!user.isEmailVerified())throw new IllegalArgumentException("Email is not verified");Authentication auth=authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(request.getUsername(),request.getPassword()));SecurityContextHolder.getContext().setAuthentication(auth);return response(user,jwt.generateToken(auth),tokens.issueRefresh(user.getId()));}
+ @Transactional public AuthResponse register(RegisterRequest r){if(users.existsByUsername(r.getUsername()))throw new IllegalArgumentException("Username already exists");String email=required(r.getEmail(),"Email").toLowerCase(Locale.ROOT);if(users.existsByEmailIgnoreCase(email))throw new IllegalArgumentException("Email already exists");Role role=r.getRole()==Role.ROLE_ADMIN?Role.ROLE_USER:(r.getRole()==null?Role.ROLE_USER:r.getRole());User u=new User(r.getUsername(),encoder.encode(r.getPassword()),r.getFullName(),role);u.setEmail(email);users.save(u);String token=tokens.action(u.getId(),UserActionToken.Type.EMAIL_VERIFICATION,1440);mail.send(email,"Verify your TaskCraft email","Verification token: "+token);return new AuthResponse(null,u.getUsername(),u.getFullName(),u.getRole());}
+ @Transactional public AuthResponse refresh(String raw){TokenService.Rotation r=tokens.rotate(raw);User u=users.findById(r.userId).orElseThrow(()->new ResourceNotFoundException("User","id",r.userId));return response(u,jwt.generateToken(u.getUsername(),u.getRole()),r.token);}
+ public void logout(String raw){tokens.revoke(raw);}
+ @Transactional public void verifyEmail(String raw){Long uid=tokens.consume(raw,UserActionToken.Type.EMAIL_VERIFICATION);User u=users.findById(uid).orElseThrow();u.setEmailVerified(true);users.save(u);}
+ public void forgotPassword(String username){users.findByUsernameIgnoreCase(username).ifPresent(u->{String token=tokens.action(u.getId(),UserActionToken.Type.PASSWORD_RESET,30);mail.send(u.getEmail(),"Reset your TaskCraft password","Reset token: "+token);});}
+ @Transactional public void resetPassword(TokenPasswordRequest r){if(r.getNewPassword()==null||r.getNewPassword().length()<8)throw new IllegalArgumentException("Password must have at least 8 characters");Long uid=tokens.consume(r.getToken(),UserActionToken.Type.PASSWORD_RESET);User u=users.findById(uid).orElseThrow();u.setPassword(encoder.encode(r.getNewPassword()));users.save(u);tokens.revokeAll(uid);}
+ public UserDTO getCurrentUser(String name){return new UserDTO(find(name));}
+ @Transactional public UserDTO updateProfile(String name,UpdateProfileRequest r){User u=find(name);u.setFullName(r.getFullName());if(r.getAvatarColor()!=null&&!r.getAvatarColor().isBlank())u.setAvatarColor(r.getAvatarColor());return new UserDTO(users.save(u));}
+ @Transactional public void changePassword(String name,ChangePasswordRequest r){User u=find(name);if(!encoder.matches(r.getOldPassword(),u.getPassword()))throw new IllegalArgumentException("Old password is incorrect");u.setPassword(encoder.encode(r.getNewPassword()));users.save(u);tokens.revokeAll(u.getId());}
+ private AuthResponse response(User u,String access,String refresh){AuthResponse r=new AuthResponse(access,u.getUsername(),u.getFullName(),u.getRole());r.setRefreshToken(refresh);r.setExpiresIn(jwt.getExpirationInMs()/1000);return r;}
+ private User find(String name){return users.findByUsernameIgnoreCase(name).orElseThrow(()->new ResourceNotFoundException("User","username",name));}
+ private String required(String v,String f){if(v==null||v.trim().isEmpty())throw new IllegalArgumentException(f+" is required");return v.trim();}
 }

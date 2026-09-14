@@ -17,6 +17,7 @@ public class RegisterRequest {
 
     @NotBlank(message = "Họ và tên không được để trống!")
     private String fullName;
+    private String email;
 
     private Role role;
 
@@ -37,6 +38,7 @@ public class RegisterRequest {
 
     public String getFullName() { return fullName; }
     public void setFullName(String fullName) { this.fullName = fullName; }
+    public String getEmail(){return email;} public void setEmail(String value){email=value;}
 
     public Role getRole() { return role; }
     public void setRole(Role role) { this.role = role; }

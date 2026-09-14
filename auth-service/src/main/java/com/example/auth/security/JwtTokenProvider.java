@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 import javax.annotation.PostConstruct;
 import java.security.Key;
 import java.util.Date;
+import com.example.auth.model.Role;
 
 @Component
 public class JwtTokenProvider {
@@ -27,17 +28,22 @@ public class JwtTokenProvider {
     }
 
     public String generateToken(Authentication authentication) {
-        String username = authentication.getName();
+        return generateToken(authentication.getName(), Role.valueOf(authentication.getAuthorities().iterator().next().getAuthority()));
+    }
+
+    public String generateToken(String username, Role role) {
         Date now = new Date();
         Date expiryDate = new Date(now.getTime() + jwtExpirationInMs);
 
         return Jwts.builder()
                 .setSubject(username)
+                .claim("role", role.name())
                 .setIssuedAt(now)
                 .setExpiration(expiryDate)
                 .signWith(key, SignatureAlgorithm.HS256)
                 .compact();
     }
+    public long getExpirationInMs(){return jwtExpirationInMs;}
 
     public String getUsernameFromJWT(String token) {
         Claims claims = Jwts.parserBuilder()

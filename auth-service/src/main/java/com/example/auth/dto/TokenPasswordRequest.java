@@ -1,0 +1,1 @@
+package com.example.auth.dto; public class TokenPasswordRequest {private String token;private String newPassword;public String getToken(){return token;}public void setToken(String v){token=v;}public String getNewPassword(){return newPassword;}public void setNewPassword(String v){newPassword=v;}}
