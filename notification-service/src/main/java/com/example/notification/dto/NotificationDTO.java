@@ -9,6 +9,8 @@ public class NotificationDTO {
     private String title;
     private String message;
     private String type;
+    private Long resourceId;
+    private String resourceType;
     private boolean isRead;
     private LocalDateTime timestamp;
 
@@ -19,7 +21,9 @@ public class NotificationDTO {
         this.recipient = notification.getRecipient();
         this.title = notification.getTitle();
         this.message = notification.getMessage();
-        this.type = notification.getType();
+        this.type = notification.getType().name();
+        this.resourceId = notification.getResourceId();
+        this.resourceType = notification.getResourceType();
         this.isRead = notification.isRead();
         this.timestamp = notification.getTimestamp();
     }
@@ -38,6 +42,12 @@ public class NotificationDTO {
 
     public String getType() { return type; }
     public void setType(String type) { this.type = type; }
+
+    public Long getResourceId() { return resourceId; }
+    public void setResourceId(Long resourceId) { this.resourceId = resourceId; }
+
+    public String getResourceType() { return resourceType; }
+    public void setResourceType(String resourceType) { this.resourceType = resourceType; }
 
     public boolean isRead() { return isRead; }
     public void setRead(boolean read) { isRead = read; }
