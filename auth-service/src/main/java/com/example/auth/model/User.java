@@ -1,6 +1,7 @@
 package com.example.auth.model;
 
 import javax.persistence.*;
+import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "users")
@@ -21,12 +22,19 @@ public class User {
 
     private String avatarColor;
     @Column(nullable=false) private boolean emailVerified=false;
+    @Column(nullable=false) private boolean active=true;
+    @Version private Long version;
+    @Column(nullable=false,updatable=false) private LocalDateTime createdAt;
+    @Column(nullable=false) private LocalDateTime updatedAt;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private Role role;
 
     public User() {}
+
+    @PrePersist void onCreate(){createdAt=LocalDateTime.now();updatedAt=createdAt;}
+    @PreUpdate void onUpdate(){updatedAt=LocalDateTime.now();}
 
     public User(String username, String password, String fullName, Role role) {
         this.username = username;
@@ -60,6 +68,8 @@ public class User {
     public String getAvatarColor() { return avatarColor; }
     public void setAvatarColor(String avatarColor) { this.avatarColor = avatarColor; }
     public boolean isEmailVerified(){return emailVerified;} public void setEmailVerified(boolean value){emailVerified=value;}
+    public boolean isActive(){return active;} public void setActive(boolean value){active=value;}
+    public Long getVersion(){return version;} public LocalDateTime getCreatedAt(){return createdAt;} public LocalDateTime getUpdatedAt(){return updatedAt;}
 
     public Role getRole() { return role; }
     public void setRole(Role role) { this.role = role; }

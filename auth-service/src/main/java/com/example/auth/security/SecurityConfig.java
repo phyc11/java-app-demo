@@ -49,6 +49,7 @@ public class SecurityConfig extends WebSecurityConfigurerAdapter {
             .and()
             .authorizeRequests()
             .antMatchers("/api/auth/login", "/api/auth/register", "/api/auth/refresh", "/api/auth/verify-email", "/api/auth/forgot-password", "/api/auth/reset-password", "/h2-console/**").permitAll()
+            .antMatchers("/api/users/**").hasRole("ADMIN")
             .anyRequest().authenticated();
 
         http.headers().frameOptions().disable();
