@@ -6,6 +6,7 @@ public class SubscribeRequestDto {
     private String planName; // FREE, PRO, ENTERPRISE
     private String paymentGateway; // STRIPE, VNPAY, MOMO
     private String currency; // USD, VND
+    private String idempotencyKey;
 
     public SubscribeRequestDto() {}
 
@@ -23,4 +24,6 @@ public class SubscribeRequestDto {
 
     public String getCurrency() { return currency; }
     public void setCurrency(String currency) { this.currency = currency; }
+    public String getIdempotencyKey() { return idempotencyKey; }
+    public void setIdempotencyKey(String idempotencyKey) { this.idempotencyKey = idempotencyKey; }
 }

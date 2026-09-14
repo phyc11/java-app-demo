@@ -28,6 +28,12 @@ public class Invoice {
     private String paymentStatus; // PENDING, PAID, FAILED
 
     private String transactionId;
+    @Column(unique = true)
+    private String idempotencyKey;
+    @Column(unique = true)
+    private String stripePaymentIntentId;
+    @Column(length = 255)
+    private String stripeClientSecret;
 
     private LocalDateTime createdAt;
     private LocalDateTime paidAt;
@@ -79,6 +85,12 @@ public class Invoice {
 
     public String getTransactionId() { return transactionId; }
     public void setTransactionId(String transactionId) { this.transactionId = transactionId; }
+    public String getIdempotencyKey() { return idempotencyKey; }
+    public void setIdempotencyKey(String idempotencyKey) { this.idempotencyKey = idempotencyKey; }
+    public String getStripePaymentIntentId() { return stripePaymentIntentId; }
+    public void setStripePaymentIntentId(String stripePaymentIntentId) { this.stripePaymentIntentId = stripePaymentIntentId; }
+    public String getStripeClientSecret() { return stripeClientSecret; }
+    public void setStripeClientSecret(String stripeClientSecret) { this.stripeClientSecret = stripeClientSecret; }
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }

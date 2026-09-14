@@ -37,10 +37,16 @@ public class BillingController {
         return ResponseEntity.ok(ApiResponse.ok("Subscription request created. Invoice generated.", invoice));
     }
 
-    @PostMapping("/payment/process")
-    public ResponseEntity<ApiResponse<PaymentProcessDto>> processPayment(@RequestBody PaymentProcessDto paymentDto) {
-        PaymentProcessDto result = billingService.processPaymentCallback(paymentDto);
-        return ResponseEntity.ok(ApiResponse.ok("Payment status processed", result));
+    @PostMapping("/stripe/payment-intents")
+    public ResponseEntity<ApiResponse<StripePaymentResponse>> createStripePayment(@RequestBody SubscribeRequestDto request) {
+        return ResponseEntity.ok(ApiResponse.ok("Stripe PaymentIntent created", billingService.createStripePayment(request)));
+    }
+
+    @PostMapping("/stripe/webhook")
+    public ResponseEntity<Void> stripeWebhook(@RequestBody String payload,
+                                               @RequestHeader("Stripe-Signature") String signature) {
+        billingService.processStripeWebhook(payload, signature);
+        return ResponseEntity.ok().build();
     }
 
     @PostMapping("/quota/check")
@@ -59,5 +65,20 @@ public class BillingController {
     public ResponseEntity<ApiResponse<List<Invoice>>> getInvoicesByUser(@PathVariable String username) {
         List<Invoice> invoices = billingService.getInvoicesByUser(username);
         return ResponseEntity.ok(ApiResponse.ok("Invoices retrieved for user", invoices));
+    }
+
+    @PostMapping("/usage")
+    public ResponseEntity<ApiResponse<WorkspaceUsage>> updateUsage(@RequestBody UsageUpdateRequest request) {
+        return ResponseEntity.ok(ApiResponse.ok("Workspace usage updated", billingService.updateUsage(request)));
+    }
+
+    @GetMapping("/usage/workspace/{workspaceId}")
+    public ResponseEntity<ApiResponse<List<WorkspaceUsage>>> getUsage(@PathVariable Long workspaceId) {
+        return ResponseEntity.ok(ApiResponse.ok("Workspace usage retrieved", billingService.getWorkspaceUsage(workspaceId)));
+    }
+
+    @GetMapping("/subscriptions/workspace/{workspaceId}/history")
+    public ResponseEntity<ApiResponse<List<SubscriptionHistory>>> getSubscriptionHistory(@PathVariable Long workspaceId) {
+        return ResponseEntity.ok(ApiResponse.ok("Subscription history retrieved", billingService.getSubscriptionHistory(workspaceId)));
     }
 }
