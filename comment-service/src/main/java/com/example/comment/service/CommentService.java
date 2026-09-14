@@ -6,9 +6,9 @@ import com.example.comment.model.Comment;
 import com.example.comment.repository.CommentRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 @Service
 public class CommentService {
@@ -21,13 +21,9 @@ public class CommentService {
     }
 
     public List<CommentDTO> getTaskCommentTree(Long taskId) {
+        requirePositiveId(taskId, "Task ID");
         List<Comment> allComments = commentRepository.findByTaskIdOrderByCreatedAtAsc(taskId);
-        if (allComments.isEmpty()) {
-            createInitialSeedComments(taskId);
-            allComments = commentRepository.findByTaskIdOrderByCreatedAtAsc(taskId);
-        }
-
-        Map<Long, CommentDTO> dtoMap = new HashMap<>();
+        Map<Long, CommentDTO> dtoMap = new LinkedHashMap<>();
         List<CommentDTO> rootComments = new ArrayList<>();
 
         for (Comment c : allComments) {
@@ -52,12 +48,28 @@ public class CommentService {
         return rootComments;
     }
 
+    public CommentDTO getComment(Long id) {
+        return new CommentDTO(findComment(id));
+    }
+
+    @Transactional
     public CommentDTO addComment(CommentDTO dto, String author, String authorAvatarColor) {
+        if (dto == null) {
+            throw new IllegalArgumentException("Comment body is required");
+        }
+        requirePositiveId(dto.getTaskId(), "Task ID");
+        String content = validateContent(dto.getContent());
+        if (dto.getParentId() != null) {
+            Comment parent = findComment(dto.getParentId());
+            if (!dto.getTaskId().equals(parent.getTaskId())) {
+                throw new IllegalArgumentException("Parent comment belongs to another task");
+            }
+        }
         Comment comment = new Comment(
                 dto.getTaskId(),
-                author != null ? author : "Anonymous",
-                authorAvatarColor != null ? authorAvatarColor : "#6366f1",
-                dto.getContent(),
+                normalizeAuthor(author),
+                normalizeColor(authorAvatarColor),
+                content,
                 dto.getParentId()
         );
 
@@ -65,51 +77,77 @@ public class CommentService {
         return new CommentDTO(saved);
     }
 
+    @Transactional
     public CommentDTO updateComment(Long id, String content, String author) {
-        Comment comment = commentRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Comment", "id", id));
+        Comment comment = findComment(id);
 
-        if (!comment.getAuthor().equalsIgnoreCase(author)) {
-            throw new IllegalArgumentException("Ban khong co quyen sua binh luan cua nguoi khac!");
-        }
+        assertAuthor(comment, author, "edit");
 
-        comment.setContent(content);
+        comment.setContent(validateContent(content));
         Comment updated = commentRepository.save(comment);
         return new CommentDTO(updated);
     }
 
+    @Transactional
     public void deleteComment(Long id, String author) {
-        Comment comment = commentRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Comment", "id", id));
-
-        if (!comment.getAuthor().equalsIgnoreCase(author)) {
-            throw new IllegalArgumentException("Ban khong co quyen xoa binh luan cua nguoi khac!");
-        }
-
-        List<Comment> replies = commentRepository.findByParentIdOrderByCreatedAtAsc(id);
-        commentRepository.deleteAll(replies);
-        commentRepository.delete(comment);
+        Comment comment = findComment(id);
+        assertAuthor(comment, author, "delete");
+        deleteTree(comment, new HashSet<>());
     }
 
     public long getTaskCommentCount(Long taskId) {
+        requirePositiveId(taskId, "Task ID");
         return commentRepository.countByTaskId(taskId);
     }
 
-    private void createInitialSeedComments(Long taskId) {
-        Comment c1 = commentRepository.save(new Comment(
-                taskId,
-                "Admin",
-                "#6366f1",
-                "Task nay can hoan thien API Gateway routing truoc khi ban giao.",
-                null
-        ));
+    private Comment findComment(Long id) {
+        requirePositiveId(id, "Comment ID");
+        return commentRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Comment", "id", id));
+    }
 
-        commentRepository.save(new Comment(
-                taskId,
-                "Developer A",
-                "#ec4899",
-                "Da kiem tra! API Gateway da san sang proxy requests xuong comment-service.",
-                c1.getId()
-        ));
+    private void deleteTree(Comment comment, Set<Long> visited) {
+        if (!visited.add(comment.getId())) {
+            throw new IllegalStateException("Circular comment hierarchy detected");
+        }
+        for (Comment reply : commentRepository.findByParentIdOrderByCreatedAtAsc(comment.getId())) {
+            deleteTree(reply, visited);
+        }
+        commentRepository.delete(comment);
+    }
+
+    private void assertAuthor(Comment comment, String author, String operation) {
+        String normalizedAuthor = normalizeAuthor(author);
+        if (!comment.getAuthor().equalsIgnoreCase(normalizedAuthor)) {
+            throw new IllegalArgumentException("Only the comment author can " + operation + " this comment");
+        }
+    }
+
+    private String validateContent(String content) {
+        if (content == null || content.trim().isEmpty()) {
+            throw new IllegalArgumentException("Comment content is required");
+        }
+        String normalized = content.trim();
+        if (normalized.length() > 4000) {
+            throw new IllegalArgumentException("Comment content must not exceed 4000 characters");
+        }
+        return normalized;
+    }
+
+    private String normalizeAuthor(String author) {
+        return author == null || author.trim().isEmpty() ? "Anonymous" : author.trim();
+    }
+
+    private String normalizeColor(String color) {
+        if (color == null || !color.matches("^#[0-9a-fA-F]{6}$")) {
+            return "#6366f1";
+        }
+        return color.toLowerCase(Locale.ROOT);
+    }
+
+    private void requirePositiveId(Long id, String field) {
+        if (id == null || id <= 0) {
+            throw new IllegalArgumentException(field + " must be a positive number");
+        }
     }
 }
