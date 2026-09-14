@@ -25,6 +25,7 @@
         <module>time-tracking-service</module>
         <module>project-service</module>
         <module>billing-service</module>
+        <module>workspace-service</module>
     </modules>
 
     <properties>
