@@ -12,4 +12,6 @@ public interface InvoiceRepository extends JpaRepository<Invoice, Long> {
     Optional<Invoice> findByInvoiceNumber(String invoiceNumber);
     List<Invoice> findByWorkspaceId(Long workspaceId);
     List<Invoice> findByOwnerUsername(String ownerUsername);
+    Optional<Invoice> findByIdempotencyKey(String idempotencyKey);
+    Optional<Invoice> findByStripePaymentIntentId(String stripePaymentIntentId);
 }

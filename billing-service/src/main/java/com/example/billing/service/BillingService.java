@@ -3,6 +3,9 @@ package com.example.billing.service;
 import com.example.billing.dto.*;
 import com.example.billing.model.*;
 import com.example.billing.repository.*;
+import com.example.billing.stripe.StripeGateway;
+import com.stripe.model.Event;
+import com.stripe.model.PaymentIntent;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -11,6 +14,8 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
+import java.util.Locale;
+import java.util.Map;
 
 @Service
 public class BillingService {
@@ -18,13 +23,22 @@ public class BillingService {
     private final SubscriptionPlanRepository planRepository;
     private final WorkspaceSubscriptionRepository subscriptionRepository;
     private final InvoiceRepository invoiceRepository;
+    private final SubscriptionHistoryRepository historyRepository;
+    private final WorkspaceUsageRepository usageRepository;
+    private final StripeGateway stripeGateway;
 
     public BillingService(SubscriptionPlanRepository planRepository,
                           WorkspaceSubscriptionRepository subscriptionRepository,
-                          InvoiceRepository invoiceRepository) {
+                          InvoiceRepository invoiceRepository,
+                          SubscriptionHistoryRepository historyRepository,
+                          WorkspaceUsageRepository usageRepository,
+                          StripeGateway stripeGateway) {
         this.planRepository = planRepository;
         this.subscriptionRepository = subscriptionRepository;
         this.invoiceRepository = invoiceRepository;
+        this.historyRepository = historyRepository;
+        this.usageRepository = usageRepository;
+        this.stripeGateway = stripeGateway;
     }
 
     @PostConstruct
@@ -87,10 +101,14 @@ public class BillingService {
         String planName = request.getPlanName() != null ? request.getPlanName().toUpperCase() : "FREE";
         SubscriptionPlan plan = planRepository.findByPlanName(planName)
                 .orElseThrow(() -> new IllegalArgumentException("Subscription plan not found: " + planName));
+        String idempotencyKey = requireIdempotencyKey(request.getIdempotencyKey());
+        Invoice existing = invoiceRepository.findByIdempotencyKey(idempotencyKey).orElse(null);
+        if (existing != null) return existing;
 
         // If plan is FREE, activate immediately without invoice payment
         if ("FREE".equals(planName) || plan.getMonthlyPrice() == 0.0) {
             WorkspaceSubscription sub = getWorkspaceSubscription(request.getWorkspaceId());
+            String previousPlan = sub.getPlanName();
             sub.setPlanName("FREE");
             sub.setOwnerUsername(request.getOwnerUsername());
             sub.setStatus("ACTIVE");
@@ -106,8 +124,11 @@ public class BillingService {
                     "SYSTEM"
             );
             freeInvoice.setPaymentStatus("PAID");
+            freeInvoice.setIdempotencyKey(idempotencyKey);
             freeInvoice.setPaidAt(LocalDateTime.now());
-            return invoiceRepository.save(freeInvoice);
+            Invoice saved = invoiceRepository.save(freeInvoice);
+            historyRepository.save(new SubscriptionHistory(request.getWorkspaceId(), previousPlan, "FREE", "ACTIVATED", saved.getInvoiceNumber()));
+            return saved;
         }
 
         // For PRO / ENTERPRISE, generate Invoice for Payment Gateway processing
@@ -127,47 +148,90 @@ public class BillingService {
                 request.getCurrency() != null ? request.getCurrency() : "USD",
                 gateway
         );
+        invoice.setIdempotencyKey(idempotencyKey);
 
         return invoiceRepository.save(invoice);
     }
 
     @Transactional
-    public PaymentProcessDto processPaymentCallback(PaymentProcessDto paymentDto) {
-        Invoice invoice = invoiceRepository.findByInvoiceNumber(paymentDto.getInvoiceNumber())
-                .orElseThrow(() -> new IllegalArgumentException("Invoice not found: " + paymentDto.getInvoiceNumber()));
-
-        if ("PAID".equals(invoice.getPaymentStatus())) {
-            paymentDto.setSuccess(true);
-            paymentDto.setMessage("Invoice has already been paid successfully.");
-            return paymentDto;
+    public StripePaymentResponse createStripePayment(SubscribeRequestDto request) {
+        request.setPaymentGateway("STRIPE");
+        Invoice invoice = subscribeOrUpgrade(request);
+        if (invoice.getAmount() == 0.0) {
+            return new StripePaymentResponse(invoice.getInvoiceNumber(), null, null, "succeeded");
         }
-
-        if (paymentDto.isSuccess()) {
-            invoice.setPaymentStatus("PAID");
-            invoice.setTransactionId(paymentDto.getTransactionId() != null ? paymentDto.getTransactionId() : "TXN-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase());
-            invoice.setPaidAt(LocalDateTime.now());
-            invoiceRepository.save(invoice);
-
-            // Update workspace active subscription
-            WorkspaceSubscription sub = getWorkspaceSubscription(invoice.getWorkspaceId());
-            sub.setPlanName(invoice.getPlanName());
-            sub.setOwnerUsername(invoice.getOwnerUsername());
-            sub.setStatus("ACTIVE");
-            sub.setStartDate(LocalDate.now());
-            sub.setEndDate(LocalDate.now().plusMonths(1));
-            subscriptionRepository.save(sub);
-
-            paymentDto.setMessage("Payment processed via " + invoice.getPaymentGateway() + ". Subscription upgraded to " + invoice.getPlanName() + "!");
-        } else {
-            invoice.setPaymentStatus("FAILED");
-            invoiceRepository.save(invoice);
-            paymentDto.setMessage("Payment failed via " + invoice.getPaymentGateway() + ". Invoice status marked as FAILED.");
+        if (invoice.getStripePaymentIntentId() != null) {
+            return new StripePaymentResponse(invoice.getInvoiceNumber(), invoice.getStripePaymentIntentId(),
+                    invoice.getStripeClientSecret(), invoice.getPaymentStatus());
         }
+        try {
+            long amountInMinorUnit = Math.round(invoice.getAmount() * 100);
+            PaymentIntent intent = stripeGateway.createPaymentIntent(amountInMinorUnit, invoice.getCurrency(),
+                    Map.of("invoiceNumber", invoice.getInvoiceNumber(), "workspaceId", invoice.getWorkspaceId().toString()),
+                    invoice.getIdempotencyKey());
+            invoice.setStripePaymentIntentId(intent.getId());
+            invoice.setStripeClientSecret(intent.getClientSecret());
+            invoiceRepository.save(invoice);
+            return new StripePaymentResponse(invoice.getInvoiceNumber(), intent.getId(), intent.getClientSecret(), intent.getStatus());
+        } catch (Exception exception) {
+            throw new IllegalStateException("Stripe PaymentIntent creation failed: " + exception.getMessage(), exception);
+        }
+    }
 
-        return paymentDto;
+    @Transactional
+    public void processStripeWebhook(String payload, String signature) {
+        final Event event;
+        try { event = stripeGateway.verifyWebhook(payload, signature); }
+        catch (Exception exception) { throw new IllegalArgumentException("Invalid Stripe webhook signature", exception); }
+        if (!"payment_intent.succeeded".equals(event.getType()) && !"payment_intent.payment_failed".equals(event.getType())) return;
+        Object object = event.getDataObjectDeserializer().getObject().orElse(null);
+        if (!(object instanceof PaymentIntent)) throw new IllegalArgumentException("Stripe webhook has no PaymentIntent payload");
+        PaymentIntent intent = (PaymentIntent) object;
+        Invoice invoice = invoiceRepository.findByStripePaymentIntentId(intent.getId())
+                .orElseThrow(() -> new IllegalArgumentException("Invoice not found for PaymentIntent: " + intent.getId()));
+        if ("payment_intent.succeeded".equals(event.getType())) activatePaidInvoice(invoice, intent.getId());
+        else if (!"PAID".equals(invoice.getPaymentStatus())) { invoice.setPaymentStatus("FAILED"); invoiceRepository.save(invoice); }
+    }
+
+    @Transactional
+    public WorkspaceUsage updateUsage(UsageUpdateRequest request) {
+        if (request.getWorkspaceId()==null || request.getResourceType()==null || request.getDelta()==null)
+            throw new IllegalArgumentException("workspaceId, resourceType and delta are required");
+        String type=request.getResourceType().trim().toUpperCase(Locale.ROOT);
+        if (!List.of("PROJECTS","MEMBERS","STORAGE").contains(type)) throw new IllegalArgumentException("Invalid resource type");
+        WorkspaceUsage usage=usageRepository.findByWorkspaceIdAndResourceType(request.getWorkspaceId(),type)
+                .orElse(new WorkspaceUsage(request.getWorkspaceId(),type));
+        long next=usage.getUsageValue()+request.getDelta();
+        if(next<0) throw new IllegalArgumentException("Usage cannot be negative");
+        usage.setUsageValue(next); return usageRepository.save(usage);
+    }
+
+    public List<WorkspaceUsage> getWorkspaceUsage(Long workspaceId){return usageRepository.findByWorkspaceId(workspaceId);}
+    public List<SubscriptionHistory> getSubscriptionHistory(Long workspaceId){return historyRepository.findByWorkspaceIdOrderByChangedAtDesc(workspaceId);}
+
+    private void activatePaidInvoice(Invoice invoice,String transactionId){
+        if("PAID".equals(invoice.getPaymentStatus())) return;
+        WorkspaceSubscription sub=getWorkspaceSubscription(invoice.getWorkspaceId());
+        String previous=sub.getPlanName();
+        invoice.setPaymentStatus("PAID"); invoice.setTransactionId(transactionId); invoice.setPaidAt(LocalDateTime.now()); invoiceRepository.save(invoice);
+        sub.setPlanName(invoice.getPlanName()); sub.setOwnerUsername(invoice.getOwnerUsername()); sub.setStatus("ACTIVE");
+        sub.setStartDate(LocalDate.now()); sub.setEndDate(LocalDate.now().plusMonths(1)); subscriptionRepository.save(sub);
+        historyRepository.save(new SubscriptionHistory(invoice.getWorkspaceId(),previous,invoice.getPlanName(),"ACTIVATED",invoice.getInvoiceNumber()));
+    }
+
+    private String requireIdempotencyKey(String value){
+        if(value==null || value.trim().length()<8 || value.trim().length()>100) throw new IllegalArgumentException("Idempotency key must be 8-100 characters");
+        return value.trim();
     }
 
     public QuotaStatusDto checkQuota(UsageQuotaCheckDto checkDto) {
+        if (checkDto == null || checkDto.getWorkspaceId() == null) throw new IllegalArgumentException("Workspace ID is required");
+        if (checkDto.getCurrentProjectCount() == null)
+            checkDto.setCurrentProjectCount(usageValue(checkDto.getWorkspaceId(), "PROJECTS").intValue());
+        if (checkDto.getCurrentMemberCount() == null)
+            checkDto.setCurrentMemberCount(usageValue(checkDto.getWorkspaceId(), "MEMBERS").intValue());
+        if (checkDto.getCurrentStorageMb() == null)
+            checkDto.setCurrentStorageMb(usageValue(checkDto.getWorkspaceId(), "STORAGE"));
         WorkspaceSubscription sub = getWorkspaceSubscription(checkDto.getWorkspaceId());
         SubscriptionPlan plan = planRepository.findByPlanName(sub.getPlanName())
                 .orElseGet(() -> planRepository.findByPlanName("FREE").get());
@@ -230,5 +294,10 @@ public class BillingService {
 
     public List<Invoice> getInvoicesByUser(String username) {
         return invoiceRepository.findByOwnerUsername(username);
+    }
+
+    private Long usageValue(Long workspaceId, String type) {
+        return usageRepository.findByWorkspaceIdAndResourceType(workspaceId, type)
+                .map(WorkspaceUsage::getUsageValue).orElse(0L);
     }
 }
