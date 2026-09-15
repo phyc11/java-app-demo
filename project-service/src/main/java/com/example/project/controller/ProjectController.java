@@ -1,108 +1,24 @@
 package com.example.project.controller;
-
-import com.example.common.dto.ApiResponse;
-import com.example.project.dto.*;
-import com.example.project.model.*;
-import com.example.project.service.ProjectService;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
-
-@RestController
-@RequestMapping("/api/projects")
-public class ProjectController {
-
-    private final ProjectService projectService;
-
-    public ProjectController(ProjectService projectService) {
-        this.projectService = projectService;
-    }
-
-    @PostMapping
-    public ResponseEntity<ApiResponse<Project>> createProject(@RequestBody ProjectRequestDto request) {
-        Project project = projectService.createProject(request);
-        return ResponseEntity.ok(ApiResponse.ok("Project created successfully", project));
-    }
-
-    @GetMapping
-    public ResponseEntity<ApiResponse<List<Project>>> getAllProjects() {
-        List<Project> projects = projectService.getAllProjects();
-        return ResponseEntity.ok(ApiResponse.ok("Retrieved " + projects.size() + " projects", projects));
-    }
-
-    @GetMapping("/{id}")
-    public ResponseEntity<ApiResponse<ProjectDetailDto>> getProjectDetail(@PathVariable Long id) {
-        ProjectDetailDto detail = projectService.getProjectDetail(id);
-        return ResponseEntity.ok(ApiResponse.ok("Project details retrieved", detail));
-    }
-
-    @PostMapping("/{id}/members")
-    public ResponseEntity<ApiResponse<ProjectMember>> addOrUpdateMember(
-            @PathVariable Long id,
-            @RequestBody ProjectMemberRequestDto request) {
-
-        ProjectMember member = projectService.addOrUpdateMember(id, request);
-        return ResponseEntity.ok(ApiResponse.ok("Project member role updated successfully", member));
-    }
-
-    @DeleteMapping("/{id}/members/{username}")
-    public ResponseEntity<ApiResponse<Void>> removeMember(
-            @PathVariable Long id,
-            @PathVariable String username) {
-
-        projectService.removeMember(id, username);
-        return ResponseEntity.ok(ApiResponse.ok("Member removed from project", null));
-    }
-
-    @PostMapping("/{id}/sprints")
-    public ResponseEntity<ApiResponse<Sprint>> createSprint(
-            @PathVariable Long id,
-            @RequestBody SprintRequestDto request) {
-
-        Sprint sprint = projectService.createSprint(id, request);
-        return ResponseEntity.ok(ApiResponse.ok("Sprint created successfully", sprint));
-    }
-
-    @PutMapping("/sprints/{sprintId}/status")
-    public ResponseEntity<ApiResponse<Sprint>> updateSprintStatus(
-            @PathVariable Long sprintId,
-            @RequestParam String status) {
-
-        Sprint sprint = projectService.updateSprintStatus(sprintId, status);
-        return ResponseEntity.ok(ApiResponse.ok("Sprint status updated to " + status, sprint));
-    }
-
-    @PostMapping("/{id}/milestones")
-    public ResponseEntity<ApiResponse<Milestone>> createMilestone(
-            @PathVariable Long id,
-            @RequestBody MilestoneRequestDto request) {
-
-        Milestone milestone = projectService.createMilestone(id, request);
-        return ResponseEntity.ok(ApiResponse.ok("Milestone created successfully", milestone));
-    }
-
-    @PutMapping("/milestones/{milestoneId}/status")
-    public ResponseEntity<ApiResponse<Milestone>> updateMilestoneStatus(
-            @PathVariable Long milestoneId,
-            @RequestParam String status) {
-
-        Milestone milestone = projectService.updateMilestoneStatus(milestoneId, status);
-        return ResponseEntity.ok(ApiResponse.ok("Milestone status updated to " + status, milestone));
-    }
-
-    @PostMapping("/{id}/tags")
-    public ResponseEntity<ApiResponse<ProjectTag>> createTag(
-            @PathVariable Long id,
-            @RequestBody ProjectTagRequestDto request) {
-
-        ProjectTag tag = projectService.createTag(id, request);
-        return ResponseEntity.ok(ApiResponse.ok("Project tag created successfully", tag));
-    }
-
-    @DeleteMapping("/tags/{tagId}")
-    public ResponseEntity<ApiResponse<Void>> deleteTag(@PathVariable Long tagId) {
-        projectService.deleteTag(tagId);
-        return ResponseEntity.ok(ApiResponse.ok("Project tag deleted", null));
-    }
+import com.example.common.dto.ApiResponse; import com.example.project.dto.*; import com.example.project.model.*; import com.example.project.service.ProjectService;
+import org.springframework.data.domain.Page; import org.springframework.http.ResponseEntity; import org.springframework.web.bind.annotation.*; import javax.validation.Valid; import java.util.List;
+@RestController @RequestMapping("/api/projects") public class ProjectController {
+ private final ProjectService service; public ProjectController(ProjectService service){this.service=service;}
+ @PostMapping public ResponseEntity<ApiResponse<Project>> create(@RequestBody ProjectRequestDto r,@RequestHeader("X-Workspace-Id")Long w,@RequestHeader("X-User")String u){return ok("Project created",service.createProject(r,w,u));}
+ @GetMapping public ResponseEntity<ApiResponse<List<Project>>> list(@RequestHeader("X-Workspace-Id")Long w,@RequestHeader("X-User")String u,@RequestHeader(value="X-Workspace-Role",required=false)String role,@RequestParam(required=false)String status,@RequestParam(required=false)String search,@RequestParam(defaultValue="0")int page,@RequestParam(defaultValue="20")int size){Page<Project> p=service.list(w,u,role,status,search,page,size);return ResponseEntity.ok(ApiResponse.okPage("Projects retrieved",p.getContent(),p.getNumber(),p.getSize(),p.getTotalElements(),p.getTotalPages()));}
+ @GetMapping("/{id}") public ResponseEntity<ApiResponse<ProjectDetailDto>> detail(@PathVariable Long id,@RequestHeader("X-Workspace-Id")Long w,@RequestHeader("X-User")String u,@RequestHeader(value="X-Workspace-Role",required=false)String role){return ok("Project retrieved",service.detail(id,w,u,role));}
+ @PutMapping("/{id}") public ResponseEntity<ApiResponse<Project>> update(@PathVariable Long id,@RequestBody ProjectRequestDto r,@RequestHeader("X-Workspace-Id")Long w,@RequestHeader("X-User")String u,@RequestHeader(value="X-Workspace-Role",required=false)String role){return ok("Project updated",service.update(id,r,w,u,role));}
+ @PutMapping("/{id}/archive") public ResponseEntity<ApiResponse<Project>> archive(@PathVariable Long id,@RequestParam Long version,@RequestHeader("X-Workspace-Id")Long w,@RequestHeader("X-User")String u,@RequestHeader(value="X-Workspace-Role",required=false)String role){return ok("Project archived",service.archive(id,version,w,u,role));}
+ @PutMapping("/{id}/restore") public ResponseEntity<ApiResponse<Project>> restore(@PathVariable Long id,@RequestParam Long version,@RequestHeader("X-Workspace-Id")Long w,@RequestHeader("X-User")String u,@RequestHeader(value="X-Workspace-Role",required=false)String role){return ok("Project restored",service.restore(id,version,w,u,role));}
+ @PostMapping("/{id}/members") public ResponseEntity<ApiResponse<ProjectMember>> member(@PathVariable Long id,@RequestBody ProjectMemberRequestDto r,@RequestHeader("X-Workspace-Id")Long w,@RequestHeader("X-User")String u,@RequestHeader(value="X-Workspace-Role",required=false)String role){return ok("Member updated",service.upsertMember(id,r,w,u,role));}
+ @DeleteMapping("/{id}/members/{username}") public ResponseEntity<ApiResponse<Void>> remove(@PathVariable Long id,@PathVariable String username,@RequestHeader("X-Workspace-Id")Long w,@RequestHeader("X-User")String u,@RequestHeader(value="X-Workspace-Role",required=false)String role){service.removeMember(id,username,w,u,role);return ok("Member removed",null);}
+ @PostMapping("/{id}/sprints") public ResponseEntity<ApiResponse<Sprint>> sprint(@PathVariable Long id,@RequestBody SprintRequestDto r,@RequestHeader("X-Workspace-Id")Long w,@RequestHeader("X-User")String u,@RequestHeader(value="X-Workspace-Role",required=false)String role){return ok("Sprint created",service.createSprint(id,r,w,u,role));}
+ @PutMapping("/sprints/{id}/status") public ResponseEntity<ApiResponse<Sprint>> sprintStatus(@PathVariable Long id,@RequestParam String status,@RequestHeader("X-Workspace-Id")Long w,@RequestHeader("X-User")String u,@RequestHeader(value="X-Workspace-Role",required=false)String role){return ok("Sprint updated",service.updateSprint(id,status,w,u,role));}
+ @PostMapping("/{id}/milestones") public ResponseEntity<ApiResponse<Milestone>> milestone(@PathVariable Long id,@RequestBody MilestoneRequestDto r,@RequestHeader("X-Workspace-Id")Long w,@RequestHeader("X-User")String u,@RequestHeader(value="X-Workspace-Role",required=false)String role){return ok("Milestone created",service.createMilestone(id,r,w,u,role));}
+ @PutMapping("/milestones/{id}/status") public ResponseEntity<ApiResponse<Milestone>> milestoneStatus(@PathVariable Long id,@RequestParam String status,@RequestHeader("X-Workspace-Id")Long w,@RequestHeader("X-User")String u,@RequestHeader(value="X-Workspace-Role",required=false)String role){return ok("Milestone updated",service.updateMilestone(id,status,w,u,role));}
+ @PostMapping("/{id}/tags") public ResponseEntity<ApiResponse<ProjectTag>> tag(@PathVariable Long id,@RequestBody ProjectTagRequestDto r,@RequestHeader("X-Workspace-Id")Long w,@RequestHeader("X-User")String u,@RequestHeader(value="X-Workspace-Role",required=false)String role){return ok("Tag created",service.createTag(id,r,w,u,role));}
+ @DeleteMapping("/tags/{id}") public ResponseEntity<ApiResponse<Void>> deleteTag(@PathVariable Long id,@RequestHeader("X-Workspace-Id")Long w,@RequestHeader("X-User")String u,@RequestHeader(value="X-Workspace-Role",required=false)String role){service.deleteTag(id,w,u,role);return ok("Tag deleted",null);}
+ @GetMapping("/{id}/tasks/{taskId}/validate") public ResponseEntity<ApiResponse<Boolean>> validateTask(@PathVariable Long id,@PathVariable Long taskId,@RequestHeader("X-Workspace-Id")Long w,@RequestHeader("X-User")String u,@RequestHeader(value="X-Workspace-Role",required=false)String role){return ok("Task belongs to project",service.validateTask(id,taskId,w,u,role));}
+ @PostMapping("/templates") public ResponseEntity<ApiResponse<ProjectTemplate>> template(@Valid @RequestBody ProjectTemplateRequest r,@RequestHeader("X-Workspace-Id")Long w,@RequestHeader("X-User")String u,@RequestHeader(value="X-Workspace-Role",required=false)String role){return ok("Template created",service.createTemplate(r,w,u,role));}
+ @GetMapping("/templates") public ResponseEntity<ApiResponse<List<ProjectTemplate>>> templates(@RequestHeader("X-Workspace-Id")Long w){return ok("Templates retrieved",service.listTemplates(w));}
+ private <T> ResponseEntity<ApiResponse<T>> ok(String m,T d){return ResponseEntity.ok(ApiResponse.ok(m,d));}
 }
