@@ -5,6 +5,9 @@ public class ProjectRequestDto {
     private String projectKey;
     private String description;
     private String ownerUsername;
+    private Long workspaceId;
+    private Long version;
+    private Long templateId;
 
     public ProjectRequestDto() {}
 
@@ -19,4 +22,7 @@ public class ProjectRequestDto {
 
     public String getOwnerUsername() { return ownerUsername; }
     public void setOwnerUsername(String ownerUsername) { this.ownerUsername = ownerUsername; }
+    public Long getWorkspaceId(){return workspaceId;} public void setWorkspaceId(Long v){workspaceId=v;}
+    public Long getVersion(){return version;} public void setVersion(Long v){version=v;}
+    public Long getTemplateId(){return templateId;} public void setTemplateId(Long v){templateId=v;}
 }

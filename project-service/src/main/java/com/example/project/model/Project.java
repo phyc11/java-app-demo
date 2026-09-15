@@ -4,17 +4,19 @@ import javax.persistence.*;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "projects")
+@Table(name = "projects", uniqueConstraints=@UniqueConstraint(name="uk_project_workspace_key",columnNames={"workspaceId","projectKey"}))
 public class Project {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+    @Version private Long version;
+    @Column(nullable=false) private Long workspaceId;
 
     @Column(nullable = false)
     private String name;
 
-    @Column(nullable = false, unique = true, length = 20)
+    @Column(nullable = false, length = 20)
     private String projectKey;
 
     @Column(length = 1000)
@@ -34,7 +36,8 @@ public class Project {
         this.updatedAt = LocalDateTime.now();
     }
 
-    public Project(String name, String projectKey, String description, String ownerUsername) {
+    public Project(Long workspaceId, String name, String projectKey, String description, String ownerUsername) {
+        this.workspaceId = workspaceId;
         this.name = name;
         this.projectKey = projectKey != null ? projectKey.toUpperCase() : null;
         this.description = description;
@@ -46,6 +49,8 @@ public class Project {
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
+    public Long getVersion(){return version;} public void setVersion(Long v){version=v;}
+    public Long getWorkspaceId(){return workspaceId;} public void setWorkspaceId(Long v){workspaceId=v;}
 
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }

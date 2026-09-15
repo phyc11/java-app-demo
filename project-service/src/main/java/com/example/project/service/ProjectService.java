@@ -1,181 +1,31 @@
 package com.example.project.service;
-
-import com.example.project.dto.*;
-import com.example.project.model.*;
-import com.example.project.repository.*;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
-import java.time.LocalDateTime;
-import java.util.List;
-
-@Service
-public class ProjectService {
-
-    private final ProjectRepository projectRepository;
-    private final ProjectMemberRepository projectMemberRepository;
-    private final SprintRepository sprintRepository;
-    private final MilestoneRepository milestoneRepository;
-    private final ProjectTagRepository projectTagRepository;
-
-    public ProjectService(ProjectRepository projectRepository,
-                          ProjectMemberRepository projectMemberRepository,
-                          SprintRepository sprintRepository,
-                          MilestoneRepository milestoneRepository,
-                          ProjectTagRepository projectTagRepository) {
-        this.projectRepository = projectRepository;
-        this.projectMemberRepository = projectMemberRepository;
-        this.sprintRepository = sprintRepository;
-        this.milestoneRepository = milestoneRepository;
-        this.projectTagRepository = projectTagRepository;
-    }
-
-    @Transactional
-    public Project createProject(ProjectRequestDto request) {
-        if (request.getName() == null || request.getName().trim().isEmpty()) {
-            throw new IllegalArgumentException("Project name is required!");
-        }
-        if (request.getProjectKey() == null || request.getProjectKey().trim().isEmpty()) {
-            throw new IllegalArgumentException("Project key is required!");
-        }
-        if (request.getOwnerUsername() == null || request.getOwnerUsername().trim().isEmpty()) {
-            throw new IllegalArgumentException("Owner username is required!");
-        }
-
-        String key = request.getProjectKey().trim().toUpperCase();
-        if (projectRepository.findByProjectKey(key).isPresent()) {
-            throw new IllegalArgumentException("Project key '" + key + "' already exists!");
-        }
-
-        Project project = new Project(
-                request.getName().trim(),
-                key,
-                request.getDescription(),
-                request.getOwnerUsername().trim()
-        );
-        project = projectRepository.save(project);
-
-        // Add owner as OWNER member
-        ProjectMember ownerMember = new ProjectMember(project.getId(), request.getOwnerUsername().trim(), "OWNER");
-        projectMemberRepository.save(ownerMember);
-
-        return project;
-    }
-
-    public List<Project> getAllProjects() {
-        return projectRepository.findAll();
-    }
-
-    public ProjectDetailDto getProjectDetail(Long projectId) {
-        Project project = projectRepository.findById(projectId)
-                .orElseThrow(() -> new IllegalArgumentException("Project not found with ID: " + projectId));
-
-        List<ProjectMember> members = projectMemberRepository.findByProjectId(projectId);
-        List<Sprint> sprints = sprintRepository.findByProjectId(projectId);
-        List<Milestone> milestones = milestoneRepository.findByProjectId(projectId);
-        List<ProjectTag> tags = projectTagRepository.findByProjectId(projectId);
-
-        return new ProjectDetailDto(project, members, sprints, milestones, tags);
-    }
-
-    @Transactional
-    public ProjectMember addOrUpdateMember(Long projectId, ProjectMemberRequestDto request) {
-        Project project = projectRepository.findById(projectId)
-                .orElseThrow(() -> new IllegalArgumentException("Project not found with ID: " + projectId));
-
-        if (request.getUsername() == null || request.getUsername().trim().isEmpty()) {
-            throw new IllegalArgumentException("Username is required!");
-        }
-
-        String role = request.getRole() != null ? request.getRole().toUpperCase() : "MEMBER";
-        List<String> validRoles = List.of("OWNER", "PROJECT_LEAD", "MEMBER", "VIEWER");
-        if (!validRoles.contains(role)) {
-            throw new IllegalArgumentException("Invalid role: " + role + ". Allowed roles: " + validRoles);
-        }
-
-        ProjectMember member = projectMemberRepository.findByProjectIdAndUsername(projectId, request.getUsername().trim())
-                .orElse(new ProjectMember(projectId, request.getUsername().trim(), role));
-
-        member.setRole(role);
-        return projectMemberRepository.save(member);
-    }
-
-    @Transactional
-    public void removeMember(Long projectId, String username) {
-        projectMemberRepository.deleteByProjectIdAndUsername(projectId, username);
-    }
-
-    @Transactional
-    public Sprint createSprint(Long projectId, SprintRequestDto request) {
-        projectRepository.findById(projectId)
-                .orElseThrow(() -> new IllegalArgumentException("Project not found with ID: " + projectId));
-
-        if (request.getName() == null || request.getName().trim().isEmpty()) {
-            throw new IllegalArgumentException("Sprint name is required!");
-        }
-
-        Sprint sprint = new Sprint(
-                projectId,
-                request.getName().trim(),
-                request.getGoal(),
-                request.getStartDate(),
-                request.getEndDate(),
-                "PLANNED"
-        );
-        return sprintRepository.save(sprint);
-    }
-
-    @Transactional
-    public Sprint updateSprintStatus(Long sprintId, String status) {
-        Sprint sprint = sprintRepository.findById(sprintId)
-                .orElseThrow(() -> new IllegalArgumentException("Sprint not found with ID: " + sprintId));
-
-        sprint.setStatus(status.toUpperCase());
-        return sprintRepository.save(sprint);
-    }
-
-    @Transactional
-    public Milestone createMilestone(Long projectId, MilestoneRequestDto request) {
-        projectRepository.findById(projectId)
-                .orElseThrow(() -> new IllegalArgumentException("Project not found with ID: " + projectId));
-
-        if (request.getTitle() == null || request.getTitle().trim().isEmpty()) {
-            throw new IllegalArgumentException("Milestone title is required!");
-        }
-
-        Milestone milestone = new Milestone(
-                projectId,
-                request.getTitle().trim(),
-                request.getDescription(),
-                request.getDueDate()
-        );
-        return milestoneRepository.save(milestone);
-    }
-
-    @Transactional
-    public Milestone updateMilestoneStatus(Long milestoneId, String status) {
-        Milestone milestone = milestoneRepository.findById(milestoneId)
-                .orElseThrow(() -> new IllegalArgumentException("Milestone not found with ID: " + milestoneId));
-
-        milestone.setStatus(status.toUpperCase());
-        return milestoneRepository.save(milestone);
-    }
-
-    @Transactional
-    public ProjectTag createTag(Long projectId, ProjectTagRequestDto request) {
-        projectRepository.findById(projectId)
-                .orElseThrow(() -> new IllegalArgumentException("Project not found with ID: " + projectId));
-
-        if (request.getName() == null || request.getName().trim().isEmpty()) {
-            throw new IllegalArgumentException("Tag name is required!");
-        }
-
-        ProjectTag tag = new ProjectTag(projectId, request.getName().trim(), request.getColor());
-        return projectTagRepository.save(tag);
-    }
-
-    @Transactional
-    public void deleteTag(Long tagId) {
-        projectTagRepository.deleteById(tagId);
-    }
+import com.example.project.dto.*; import com.example.project.model.*; import com.example.project.repository.*; import com.fasterxml.jackson.core.type.TypeReference; import com.fasterxml.jackson.databind.*;
+import org.springframework.beans.factory.annotation.Value; import org.springframework.data.domain.*; import org.springframework.orm.ObjectOptimisticLockingFailureException; import org.springframework.stereotype.Service; import org.springframework.transaction.annotation.Transactional; import org.springframework.web.client.RestTemplate;
+import java.time.LocalDateTime; import java.util.*;
+@Service public class ProjectService {
+ private final ProjectRepository projects; private final ProjectMemberRepository members; private final SprintRepository sprints; private final MilestoneRepository milestones; private final ProjectTagRepository tags; private final ProjectTemplateRepository templates;
+ private final RestTemplate http=new RestTemplate(); private final ObjectMapper json=new ObjectMapper().findAndRegisterModules(); private final String taskUrl;
+ public ProjectService(ProjectRepository p,ProjectMemberRepository pm,SprintRepository s,MilestoneRepository m,ProjectTagRepository t,ProjectTemplateRepository pt,@Value("${task-service.url:http://localhost:8082}")String taskUrl){projects=p;members=pm;sprints=s;milestones=m;tags=t;templates=pt;this.taskUrl=taskUrl;}
+ @Transactional public Project createProject(ProjectRequestDto r,Long workspaceId,String actor){requiredWorkspace(workspaceId);if(r.getWorkspaceId()!=null&&!workspaceId.equals(r.getWorkspaceId()))throw new SecurityException("workspaceId does not match trusted workspace");String name=required(r.getName(),"Project name"),key=required(r.getProjectKey(),"Project key").toUpperCase();if(projects.existsByWorkspaceIdAndProjectKey(workspaceId,key))throw new IllegalArgumentException("Project key already exists in workspace");Project p=projects.save(new Project(workspaceId,name,key,r.getDescription(),actor));members.save(new ProjectMember(p.getId(),actor,"OWNER"));if(r.getTemplateId()!=null)applyTemplate(p,r.getTemplateId(),workspaceId);return p;}
+ public Page<Project> list(Long workspaceId,String actor,String workspaceRole,String status,String search,int page,int size){requiredWorkspace(workspaceId);String normalized=status==null?null:status.toUpperCase();return projects.searchAccessible(workspaceId,normalized,blank(search),actor,isWorkspaceAdmin(workspaceRole),PageRequest.of(Math.max(0,page),Math.min(100,Math.max(1,size)),Sort.by("updatedAt").descending()));}
+ public ProjectDetailDto detail(Long id,Long workspaceId,String actor,String workspaceRole){Project p=accessible(id,workspaceId,actor,workspaceRole,false);return new ProjectDetailDto(p,members.findByProjectId(id),sprints.findByProjectId(id),milestones.findByProjectId(id),tags.findByProjectId(id));}
+ @Transactional public Project update(Long id,ProjectRequestDto r,Long workspaceId,String actor,String workspaceRole){Project p=accessible(id,workspaceId,actor,workspaceRole,true);if(r.getVersion()==null||!r.getVersion().equals(p.getVersion()))throw new ObjectOptimisticLockingFailureException(Project.class,id);if(r.getName()!=null)p.setName(required(r.getName(),"Project name"));if(r.getDescription()!=null)p.setDescription(r.getDescription());p.setUpdatedAt(LocalDateTime.now());return projects.saveAndFlush(p);}
+ @Transactional public Project archive(Long id,Long version,Long w,String a,String role){Project p=accessible(id,w,a,role,true);checkVersion(p,version);p.setStatus("ARCHIVED");p.setUpdatedAt(LocalDateTime.now());return projects.saveAndFlush(p);}
+ @Transactional public Project restore(Long id,Long version,Long w,String a,String role){Project p=accessible(id,w,a,role,true);checkVersion(p,version);p.setStatus("ACTIVE");p.setUpdatedAt(LocalDateTime.now());return projects.saveAndFlush(p);}
+ @Transactional public ProjectMember upsertMember(Long id,ProjectMemberRequestDto r,Long w,String a,String role){accessible(id,w,a,role,true);String username=required(r.getUsername(),"Username");String target=Optional.ofNullable(r.getRole()).orElse("MEMBER").toUpperCase();if(!Arrays.asList("PROJECT_LEAD","MEMBER","VIEWER").contains(target))throw new IllegalArgumentException("Role must be PROJECT_LEAD, MEMBER or VIEWER");ProjectMember member=members.findByProjectIdAndUsername(id,username).orElse(new ProjectMember(id,username,target));if("OWNER".equals(member.getRole()))throw new IllegalArgumentException("Owner role cannot be changed");member.setRole(target);return members.save(member);}
+ @Transactional public void removeMember(Long id,String username,Long w,String a,String role){Project p=accessible(id,w,a,role,true);if(p.getOwnerUsername().equalsIgnoreCase(username))throw new IllegalArgumentException("Project owner cannot be removed");members.deleteByProjectIdAndUsername(id,username);}
+ @Transactional public Sprint createSprint(Long id,SprintRequestDto r,Long w,String a,String role){mutable(id,w,a,role);return sprints.save(new Sprint(id,required(r.getName(),"Sprint name"),r.getGoal(),r.getStartDate(),r.getEndDate(),"PLANNED"));}
+ @Transactional public Milestone createMilestone(Long id,MilestoneRequestDto r,Long w,String a,String role){mutable(id,w,a,role);return milestones.save(new Milestone(id,required(r.getTitle(),"Milestone title"),r.getDescription(),r.getDueDate()));}
+ @Transactional public ProjectTag createTag(Long id,ProjectTagRequestDto r,Long w,String a,String role){mutable(id,w,a,role);return tags.save(new ProjectTag(id,required(r.getName(),"Tag name"),r.getColor()));}
+ @Transactional public Sprint updateSprint(Long id,String status,Long w,String a,String role){Sprint s=sprints.findById(id).orElseThrow(()->new IllegalArgumentException("Sprint not found"));mutable(s.getProjectId(),w,a,role);s.setStatus(required(status,"Status").toUpperCase());return sprints.save(s);}
+ @Transactional public Milestone updateMilestone(Long id,String status,Long w,String a,String role){Milestone m=milestones.findById(id).orElseThrow(()->new IllegalArgumentException("Milestone not found"));mutable(m.getProjectId(),w,a,role);m.setStatus(required(status,"Status").toUpperCase());return milestones.save(m);}
+ @Transactional public void deleteTag(Long id,Long w,String a,String role){ProjectTag t=tags.findById(id).orElseThrow(()->new IllegalArgumentException("Tag not found"));mutable(t.getProjectId(),w,a,role);tags.delete(t);}
+ public boolean validateTask(Long projectId,Long taskId,Long w,String a,String role){accessible(projectId,w,a,role,false);try{JsonNode task=json.readTree(http.getForObject(taskUrl+"/api/tasks/"+taskId,String.class)).path("data");if(task.path("workspaceId").asLong()!=w||task.path("projectId").asLong()!=projectId)throw new IllegalArgumentException("Task does not belong to this project/workspace");return true;}catch(IllegalArgumentException e){throw e;}catch(Exception e){throw new IllegalStateException("Cannot verify task",e);}}
+ @Transactional public ProjectTemplate createTemplate(ProjectTemplateRequest r,Long w,String a,String role){requiredWorkspace(w);if("VIEWER".equals(role))throw new SecurityException("Viewer cannot create templates");if(templates.existsByWorkspaceIdAndNameIgnoreCase(w,r.getName()))throw new IllegalArgumentException("Template name already exists");ProjectTemplate t=new ProjectTemplate();t.setWorkspaceId(w);t.setName(required(r.getName(),"Template name"));t.setDescription(r.getDescription());t.setCreatedBy(a);if(r.getSourceProjectId()!=null){accessible(r.getSourceProjectId(),w,a,role,false);t.setTagsJson(write(tags.findByProjectId(r.getSourceProjectId())));t.setMilestonesJson(write(milestones.findByProjectId(r.getSourceProjectId())));}return templates.save(t);}
+ public List<ProjectTemplate> listTemplates(Long w){requiredWorkspace(w);return templates.findByWorkspaceIdOrderByName(w);}
+ private void applyTemplate(Project p,Long id,Long w){ProjectTemplate t=templates.findById(id).orElseThrow(()->new IllegalArgumentException("Template not found"));if(!w.equals(t.getWorkspaceId()))throw new SecurityException("Template belongs to another workspace");try{for(ProjectTag x:json.readValue(t.getTagsJson(),new TypeReference<List<ProjectTag>>(){})){x.setId(null);x.setProjectId(p.getId());tags.save(x);}for(Milestone x:json.readValue(t.getMilestonesJson(),new TypeReference<List<Milestone>>(){})){x.setId(null);x.setProjectId(p.getId());x.setStatus("OPEN");milestones.save(x);}}catch(Exception e){throw new IllegalStateException("Invalid project template",e);}}
+ private Project mutable(Long id,Long w,String a,String role){Project p=accessible(id,w,a,role,true);if("ARCHIVED".equals(p.getStatus()))throw new IllegalStateException("Archived project is read-only");return p;}
+ private Project accessible(Long id,Long w,String a,String workspaceRole,boolean write){Project p=projects.findById(id).orElseThrow(()->new IllegalArgumentException("Project not found"));if(w==null||!w.equals(p.getWorkspaceId()))throw new SecurityException("Project belongs to another workspace");if(isWorkspaceAdmin(workspaceRole))return p;ProjectMember m=members.findByProjectIdAndUsername(id,a).orElseThrow(()->new SecurityException("Project membership required"));if(write&&!Arrays.asList("OWNER","PROJECT_LEAD").contains(m.getRole()))throw new SecurityException("Project lead or owner role required");return p;}
+ private void checkVersion(Project p,Long version){if(version==null||!version.equals(p.getVersion()))throw new ObjectOptimisticLockingFailureException(Project.class,p.getId());}
+ private boolean isWorkspaceAdmin(String r){return "OWNER".equals(r)||"ADMIN".equals(r);}private void requiredWorkspace(Long w){if(w==null)throw new IllegalArgumentException("X-Workspace-Id is required");}private String required(String v,String n){if(v==null||v.trim().isEmpty())throw new IllegalArgumentException(n+" is required");return v.trim();}private String blank(String v){return v==null||v.trim().isEmpty()?null:v.trim();}private String write(Object o){try{return json.writeValueAsString(o);}catch(Exception e){throw new IllegalStateException(e);}}
 }

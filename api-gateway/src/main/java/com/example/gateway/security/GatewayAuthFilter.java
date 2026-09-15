@@ -12,6 +12,6 @@ import javax.annotation.PostConstruct; import javax.crypto.SecretKey; import jav
  }
  private void unauthorized(HttpServletResponse r)throws IOException{r.setStatus(401);r.setContentType("application/json");r.getWriter().write("{\"success\":false,\"message\":\"Invalid or missing access token\"}");}
  private boolean isWorkspaceScoped(String p){return p.startsWith("/api/tasks")||p.startsWith("/api/projects")||p.startsWith("/api/comments")||p.startsWith("/api/files")||p.startsWith("/api/analytics")||p.startsWith("/api/export")||p.startsWith("/api/time-tracking")||p.startsWith("/api/workspaces/")||p.startsWith("/api/billing/subscription")||p.startsWith("/api/billing/usage")||p.startsWith("/api/billing/invoices");}
- private boolean isAdministration(String p){return p.contains("/members")||p.contains("/invitations")||p.contains("/owner/");}
+ private boolean isAdministration(String p){return p.startsWith("/api/workspaces/")&&(p.contains("/members")||p.contains("/invitations")||p.contains("/owner/"));}
  private void error(HttpServletResponse r,int status,String message)throws IOException{r.setStatus(status);r.setContentType("application/json");r.getWriter().write("{\"success\":false,\"message\":\""+message+"\"}");}
 }
