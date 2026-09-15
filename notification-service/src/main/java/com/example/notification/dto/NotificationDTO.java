@@ -13,6 +13,8 @@ public class NotificationDTO {
     private String resourceType;
     private boolean isRead;
     private LocalDateTime timestamp;
+    private String emailStatus;
+    private int emailAttempts;
 
     public NotificationDTO() {}
 
@@ -26,6 +28,7 @@ public class NotificationDTO {
         this.resourceType = notification.getResourceType();
         this.isRead = notification.isRead();
         this.timestamp = notification.getTimestamp();
+        this.emailStatus=notification.getEmailStatus().name(); this.emailAttempts=notification.getEmailAttempts();
     }
 
     public Long getId() { return id; }
@@ -54,4 +57,6 @@ public class NotificationDTO {
 
     public LocalDateTime getTimestamp() { return timestamp; }
     public void setTimestamp(LocalDateTime timestamp) { this.timestamp = timestamp; }
+    public String getEmailStatus(){return emailStatus;} public void setEmailStatus(String v){emailStatus=v;}
+    public int getEmailAttempts(){return emailAttempts;} public void setEmailAttempts(int v){emailAttempts=v;}
 }

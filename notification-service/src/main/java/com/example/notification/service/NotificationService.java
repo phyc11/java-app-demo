@@ -11,6 +11,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -30,28 +32,33 @@ public class NotificationService {
     private final JavaMailSender mailSender;
     private final boolean emailDeliveryEnabled;
     private final String mailFrom;
+    private final NotificationTemplateService templateService;
+    private final int maxEmailAttempts;
     private final Map<String, List<SseEmitter>> emittersMap = new ConcurrentHashMap<>();
 
     public NotificationService(NotificationRepository notificationRepository,
                                NotificationPreferenceRepository preferenceRepository,
                                JavaMailSender mailSender,
+                               NotificationTemplateService templateService,
                                @Value("${notification.email.enabled:false}") boolean emailDeliveryEnabled,
-                               @Value("${notification.email.from:noreply@taskcraft.local}") String mailFrom) {
+                               @Value("${notification.email.from:noreply@taskcraft.local}") String mailFrom,
+                               @Value("${notification.email.max-attempts:3}") int maxEmailAttempts) {
         this.notificationRepository = notificationRepository;
         this.preferenceRepository = preferenceRepository;
         this.mailSender = mailSender;
         this.emailDeliveryEnabled = emailDeliveryEnabled;
         this.mailFrom = mailFrom;
+        this.templateService=templateService; this.maxEmailAttempts=maxEmailAttempts;
     }
 
     public List<NotificationDTO> getUserNotifications(String recipient) {
-        return notificationRepository.findByRecipientOrderByTimestampDesc(requireUser(recipient)).stream()
+        return notificationRepository.findByRecipientAndInAppVisibleTrueOrderByTimestampDesc(requireUser(recipient)).stream()
                 .map(NotificationDTO::new)
                 .collect(Collectors.toList());
     }
 
     public long getUnreadCount(String recipient) {
-        return notificationRepository.countByRecipientAndIsReadFalse(requireUser(recipient));
+        return notificationRepository.countByRecipientAndIsReadFalseAndInAppVisibleTrue(requireUser(recipient));
     }
 
     @Transactional
@@ -70,7 +77,8 @@ public class NotificationService {
             log.debug("Notification type {} disabled for {}", type, recipient);
             return null;
         }
-        return deliver(recipient, defaultTitle(event, type), required(event.getMessage(), "Message"),
+        NotificationTemplateService.Rendered rendered=templateService.render(event,type,defaultTitle(event,type));
+        return deliver(recipient, rendered.subject, required(rendered.body, "Message"),
                 type, event.getResourceId(), event.getResourceType(), false);
     }
 
@@ -112,6 +120,8 @@ public class NotificationService {
         if (request.getReplyEnabled() != null) preference.setReplyEnabled(request.getReplyEnabled());
         if (request.getAssignmentEnabled() != null) preference.setAssignmentEnabled(request.getAssignmentEnabled());
         if (request.getDeadlineEnabled() != null) preference.setDeadlineEnabled(request.getDeadlineEnabled());
+        if(request.getDigestEmailEnabled()!=null)preference.setDigestEmailEnabled(request.getDigestEmailEnabled());
+        if(request.getDigestHour()!=null){if(request.getDigestHour()<0||request.getDigestHour()>23)throw new IllegalArgumentException("Digest hour must be between 0 and 23");preference.setDigestHour(request.getDigestHour());}
         if (preference.isEmailEnabled() && preference.getEmail() == null) {
             throw new IllegalArgumentException("Email address is required when email notifications are enabled");
         }
@@ -136,35 +146,39 @@ public class NotificationService {
     private NotificationDTO deliver(String recipient, String title, String message, NotificationType type,
                                     Long resourceId, String resourceType, boolean forceInApp) {
         NotificationPreference preference = getOrCreatePreference(recipient);
-        NotificationDTO dto = null;
-        if (forceInApp || preference.isInAppEnabled()) {
-            Notification saved = notificationRepository.save(
-                    new Notification(recipient, title, message, type, resourceId, resourceType));
-            dto = new NotificationDTO(saved);
-            pushSseEvent(recipient, dto);
-        }
-        if (preference.isEmailEnabled()) {
-            sendEmail(preference.getEmail(), title, message);
-        }
+        boolean visible=forceInApp||preference.isInAppEnabled();
+        Notification saved=new Notification(recipient,title,message,type,resourceId,resourceType);saved.setInAppVisible(visible);
+        if(preference.isEmailEnabled())saved.setEmailStatus(preference.isDigestEmailEnabled()?EmailDeliveryStatus.PENDING_DIGEST:EmailDeliveryStatus.PENDING);
+        saved=notificationRepository.save(saved);NotificationDTO dto=visible?new NotificationDTO(saved):null;if(dto!=null)pushSseEvent(recipient,dto);
+        if(saved.getEmailStatus()==EmailDeliveryStatus.PENDING)attemptEmail(saved,preference.getEmail());
         return dto;
     }
 
-    private void sendEmail(String address, String title, String message) {
+    private void attemptEmail(Notification notification,String address) {
         if (!emailDeliveryEnabled) {
             log.info("Email delivery disabled; skipped notification for {}", address);
+            notification.setEmailStatus(EmailDeliveryStatus.SKIPPED_DISABLED);notificationRepository.save(notification);
             return;
         }
         try {
             SimpleMailMessage mail = new SimpleMailMessage();
             mail.setFrom(mailFrom);
             mail.setTo(address);
-            mail.setSubject(title);
-            mail.setText(message);
+            mail.setSubject(notification.getTitle());
+            mail.setText(notification.getMessage());
             mailSender.send(mail);
+            notification.setEmailAttempts(notification.getEmailAttempts()+1);notification.setEmailStatus(EmailDeliveryStatus.SENT);notification.setEmailSentAt(java.time.LocalDateTime.now());notification.setEmailLastError(null);notificationRepository.save(notification);
         } catch (RuntimeException exception) {
             log.error("Could not send notification email to {}", address, exception);
+            notification.setEmailAttempts(notification.getEmailAttempts()+1);notification.setEmailStatus(EmailDeliveryStatus.FAILED);notification.setEmailLastError(exception.getMessage());notificationRepository.save(notification);
         }
     }
+
+    @Scheduled(fixedDelayString="${notification.email.retry-interval-ms:60000}")
+    public void retryFailedEmail(){for(Notification n:notificationRepository.findByEmailStatusAndEmailAttemptsLessThanOrderByTimestampAsc(EmailDeliveryStatus.FAILED,maxEmailAttempts,PageRequest.of(0,100))){NotificationPreference p=getOrCreatePreference(n.getRecipient());if(p.isEmailEnabled()&&p.getEmail()!=null)attemptEmail(n,p.getEmail());}}
+
+    @Scheduled(cron="${notification.digest.cron:0 0 * * * *}")
+    public void sendDigests(){int hour=java.time.LocalDateTime.now().getHour();for(NotificationPreference p:preferenceRepository.findAll()){if(!p.isEmailEnabled()||!p.isDigestEmailEnabled()||p.getDigestHour()==null||p.getDigestHour()!=hour||p.getEmail()==null)continue;List<Notification> pending=notificationRepository.findByRecipientAndEmailStatusOrderByTimestampAsc(p.getUsername(),EmailDeliveryStatus.PENDING_DIGEST);if(pending.isEmpty())continue;Notification digest=new Notification(p.getUsername(),"TaskCraft notification digest",pending.stream().map(n->"- "+n.getTitle()+": "+n.getMessage()).collect(Collectors.joining("\n")),NotificationType.SYSTEM,null,"DIGEST");digest.setInAppVisible(false);digest.setEmailStatus(EmailDeliveryStatus.PENDING);attemptEmail(digest,p.getEmail());if(digest.getEmailStatus()==EmailDeliveryStatus.SENT){pending.forEach(n->{n.setEmailStatus(EmailDeliveryStatus.DIGESTED);n.setEmailSentAt(java.time.LocalDateTime.now());});notificationRepository.saveAll(pending);}}}
 
     private void pushSseEvent(String recipient, NotificationDTO dto) {
         List<SseEmitter> emitters = emittersMap.get(recipient);

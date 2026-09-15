@@ -22,6 +22,8 @@ public class NotificationPreference {
     private boolean replyEnabled = true;
     private boolean assignmentEnabled = true;
     private boolean deadlineEnabled = true;
+    private boolean digestEmailEnabled = false;
+    private Integer digestHour = 8;
 
     public NotificationPreference() {}
 
@@ -45,4 +47,6 @@ public class NotificationPreference {
     public void setAssignmentEnabled(boolean assignmentEnabled) { this.assignmentEnabled = assignmentEnabled; }
     public boolean isDeadlineEnabled() { return deadlineEnabled; }
     public void setDeadlineEnabled(boolean deadlineEnabled) { this.deadlineEnabled = deadlineEnabled; }
+    public boolean isDigestEmailEnabled(){return digestEmailEnabled;} public void setDigestEmailEnabled(boolean v){digestEmailEnabled=v;}
+    public Integer getDigestHour(){return digestHour;} public void setDigestHour(Integer v){digestHour=v;}
 }

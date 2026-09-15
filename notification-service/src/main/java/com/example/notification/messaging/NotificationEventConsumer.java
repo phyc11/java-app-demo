@@ -30,7 +30,7 @@ public class NotificationEventConsumer {
         }
         String eventId = event.getEventId().trim();
         if (processedEventRepository.existsById(eventId)) return;
+        processedEventRepository.saveAndFlush(new ProcessedEvent(eventId));
         notificationService.processEvent(event);
-        processedEventRepository.save(new ProcessedEvent(eventId));
     }
 }

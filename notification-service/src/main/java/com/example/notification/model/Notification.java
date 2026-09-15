@@ -30,6 +30,12 @@ public class Notification {
     private String resourceType;
 
     private boolean isRead = false;
+    @Column(nullable=false) private boolean inAppVisible=true;
+    @Enumerated(EnumType.STRING) @Column(nullable=false,length=30)
+    private EmailDeliveryStatus emailStatus = EmailDeliveryStatus.NOT_REQUESTED;
+    private int emailAttempts;
+    @Column(length=1000) private String emailLastError;
+    private LocalDateTime emailSentAt;
 
     @Column(nullable = false)
     private LocalDateTime timestamp;
@@ -78,7 +84,11 @@ public class Notification {
 
     public boolean isRead() { return isRead; }
     public void setRead(boolean read) { isRead = read; }
+    public boolean isInAppVisible(){return inAppVisible;} public void setInAppVisible(boolean v){inAppVisible=v;}
 
     public LocalDateTime getTimestamp() { return timestamp; }
     public void setTimestamp(LocalDateTime timestamp) { this.timestamp = timestamp; }
+    public EmailDeliveryStatus getEmailStatus(){return emailStatus;} public void setEmailStatus(EmailDeliveryStatus v){emailStatus=v;}
+    public int getEmailAttempts(){return emailAttempts;} public void setEmailAttempts(int v){emailAttempts=v;} public String getEmailLastError(){return emailLastError;} public void setEmailLastError(String v){emailLastError=v;}
+    public LocalDateTime getEmailSentAt(){return emailSentAt;} public void setEmailSentAt(LocalDateTime v){emailSentAt=v;}
 }

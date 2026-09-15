@@ -12,12 +12,17 @@ import org.springframework.context.annotation.Configuration;
 public class RabbitNotificationConfig {
     public static final String EXCHANGE = "taskcraft.events";
     public static final String QUEUE = "notification.events";
+    public static final String DLX = "taskcraft.events.dlx";
+    public static final String DLQ = "notification.events.dlq";
 
     @Bean
     public TopicExchange taskcraftExchange() { return new TopicExchange(EXCHANGE, true, false); }
 
     @Bean
-    public Queue notificationQueue() { return QueueBuilder.durable(QUEUE).build(); }
+    public Queue notificationQueue() { return QueueBuilder.durable(QUEUE).deadLetterExchange(DLX).deadLetterRoutingKey(DLQ).build(); }
+    @Bean public DirectExchange notificationDeadLetterExchange(){return new DirectExchange(DLX,true,false);}
+    @Bean public Queue notificationDeadLetterQueue(){return QueueBuilder.durable(DLQ).build();}
+    @Bean public Binding notificationDeadLetterBinding(Queue notificationDeadLetterQueue,DirectExchange notificationDeadLetterExchange){return BindingBuilder.bind(notificationDeadLetterQueue).to(notificationDeadLetterExchange).with(DLQ);}
 
     @Bean
     public Binding notificationBinding(Queue notificationQueue, TopicExchange taskcraftExchange) {
