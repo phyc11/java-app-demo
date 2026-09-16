@@ -29,9 +29,10 @@ public class NotificationController {
     @GetMapping
     public ApiResponse<List<NotificationDTO>> getMyNotifications(
             @RequestHeader(value = "X-User", required = false) String userHeader, Principal principal,
+            @RequestParam(required=false) String type,@RequestParam(defaultValue="false") boolean unreadOnly,
             @RequestParam(defaultValue="0") int page,@RequestParam(defaultValue="20") int size) {
         String recipient = resolveUser(userHeader, principal);
-        Page<NotificationDTO> notifications = notificationService.getUserNotifications(recipient,page,size);
+        Page<NotificationDTO> notifications = notificationService.getUserNotifications(recipient,type,unreadOnly,page,size);
         return ApiResponse.okPage("Notifications retrieved successfully", notifications.getContent(),page,size,notifications.getTotalElements(),notifications.getTotalPages());
     }
 
@@ -69,6 +70,13 @@ public class NotificationController {
         String recipient = resolveUser(userHeader, principal);
         notificationService.markAllAsRead(recipient);
         return ApiResponse.ok("All notifications marked as read", null);
+    }
+
+    @DeleteMapping("/{id}")
+    public ApiResponse<Void> dismiss(@PathVariable Long id,
+            @RequestHeader(value="X-User",required=false) String userHeader,Principal principal){
+        notificationService.dismiss(id,resolveUser(userHeader,principal));
+        return ApiResponse.ok("Notification dismissed",null);
     }
 
     @PostMapping("/{id}/email/retry")

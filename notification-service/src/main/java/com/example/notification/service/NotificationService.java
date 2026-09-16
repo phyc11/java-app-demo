@@ -36,6 +36,7 @@ public class NotificationService {
     private final String mailFrom;
     private final NotificationTemplateService templateService;
     private final int maxEmailAttempts;
+    private final int maxSseConnectionsPerUser;
     private final Map<String, List<SseEmitter>> emittersMap = new ConcurrentHashMap<>();
 
     public NotificationService(NotificationRepository notificationRepository,
@@ -44,13 +45,14 @@ public class NotificationService {
                                NotificationTemplateService templateService,
                                @Value("${notification.email.enabled:false}") boolean emailDeliveryEnabled,
                                @Value("${notification.email.from:noreply@taskcraft.local}") String mailFrom,
-                               @Value("${notification.email.max-attempts:3}") int maxEmailAttempts) {
+                               @Value("${notification.email.max-attempts:3}") int maxEmailAttempts,
+                               @Value("${notification.sse.max-connections-per-user:5}") int maxSseConnectionsPerUser) {
         this.notificationRepository = notificationRepository;
         this.preferenceRepository = preferenceRepository;
         this.mailSender = mailSender;
         this.emailDeliveryEnabled = emailDeliveryEnabled;
         this.mailFrom = mailFrom;
-        this.templateService=templateService; this.maxEmailAttempts=maxEmailAttempts;
+        this.templateService=templateService; this.maxEmailAttempts=maxEmailAttempts; this.maxSseConnectionsPerUser=maxSseConnectionsPerUser;
     }
 
     public List<NotificationDTO> getUserNotifications(String recipient) {
@@ -60,8 +62,13 @@ public class NotificationService {
     }
 
     public Page<NotificationDTO> getUserNotifications(String recipient,int page,int size) {
+        return getUserNotifications(recipient,null,false,page,size);
+    }
+
+    public Page<NotificationDTO> getUserNotifications(String recipient,String type,boolean unreadOnly,int page,int size) {
         if(page<0||size<1||size>100)throw new IllegalArgumentException("page must be >= 0 and size must be 1-100");
-        return notificationRepository.findByRecipientAndInAppVisibleTrue(requireUser(recipient),PageRequest.of(page,size,Sort.by("timestamp").descending())).map(NotificationDTO::new);
+        NotificationType filter=type==null||type.trim().isEmpty()?null:parseType(type);
+        return notificationRepository.findInbox(requireUser(recipient),filter,unreadOnly,PageRequest.of(page,size,Sort.by("timestamp").descending())).map(NotificationDTO::new);
     }
 
     public long getUnreadCount(String recipient) {
@@ -99,10 +106,15 @@ public class NotificationService {
 
     @Transactional
     public void markAllAsRead(String recipient) {
-        List<Notification> notifications = notificationRepository
-                .findByRecipientOrderByTimestampDesc(requireUser(recipient));
-        notifications.stream().filter(n -> !n.isRead()).forEach(n -> n.setRead(true));
-        notificationRepository.saveAll(notifications);
+        notificationRepository.markAllVisibleAsRead(requireUser(recipient));
+    }
+
+    @Transactional
+    public void dismiss(Long id,String recipient) {
+        Notification notification=notificationRepository.findByIdAndRecipient(id,requireUser(recipient))
+                .orElseThrow(()->new ResourceNotFoundException("Notification","id",id));
+        notification.setInAppVisible(false);
+        notificationRepository.save(notification);
     }
 
     public NotificationPreference getPreference(String username) {
@@ -138,7 +150,8 @@ public class NotificationService {
     public SseEmitter subscribeSse(String recipient) {
         String user = requireUser(recipient);
         SseEmitter emitter = new SseEmitter(3600000L);
-        emittersMap.computeIfAbsent(user, key -> Collections.synchronizedList(new ArrayList<>())).add(emitter);
+        List<SseEmitter> emitters=emittersMap.computeIfAbsent(user,key->Collections.synchronizedList(new ArrayList<>()));
+        synchronized(emitters){if(emitters.size()>=maxSseConnectionsPerUser)throw new IllegalStateException("Maximum SSE connections reached");emitters.add(emitter);}
         emitter.onCompletion(() -> removeEmitter(user, emitter));
         emitter.onTimeout(() -> removeEmitter(user, emitter));
         emitter.onError(error -> removeEmitter(user, emitter));
