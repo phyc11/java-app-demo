@@ -1,0 +1,4 @@
+package com.example.notification.service;
+import com.example.notification.repository.ProcessedEventRepository;import org.springframework.beans.factory.annotation.Value;import org.springframework.scheduling.annotation.Scheduled;import org.springframework.stereotype.Service;import org.springframework.transaction.annotation.Transactional;import java.time.LocalDateTime;
+@Service public class ProcessedEventCleanupJob {private final ProcessedEventRepository repository;private final int retentionDays;public ProcessedEventCleanupJob(ProcessedEventRepository r,@Value("${notification.dedup.retention-days:30}")int days){repository=r;retentionDays=days;}
+ @Scheduled(cron="${notification.dedup.cleanup-cron:0 30 2 * * *}") @Transactional public long cleanup(){return repository.deleteByProcessedAtBefore(LocalDateTime.now().minusDays(retentionDays));}}
