@@ -5,6 +5,8 @@ import com.example.billing.model.*;
 import com.example.billing.repository.*;
 import com.example.billing.stripe.StripeGateway;
 import com.stripe.model.PaymentIntent;
+import com.stripe.model.Event;
+import org.springframework.data.domain.Page;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,10 +24,12 @@ class BillingServiceIntegrationTest {
     @Autowired private WorkspaceSubscriptionRepository subscriptionRepository;
     @Autowired private SubscriptionHistoryRepository historyRepository;
     @Autowired private WorkspaceUsageRepository usageRepository;
+    @Autowired private StripeWebhookEventRepository webhookEventRepository;
     @MockBean private StripeGateway stripeGateway;
 
     @BeforeEach
     void cleanTransactions() {
+        webhookEventRepository.deleteAll();
         historyRepository.deleteAll();
         invoiceRepository.deleteAll();
         usageRepository.deleteAll();
@@ -102,6 +106,43 @@ class BillingServiceIntegrationTest {
         UsageUpdateRequest update = new UsageUpdateRequest();
         update.setWorkspaceId(10L); update.setResourceType("STORAGE"); update.setDelta(-1L);
         assertThrows(IllegalArgumentException.class, () -> billingService.updateUsage(update));
+    }
+
+    @Test
+    void rejectsIdempotencyKeyReusedForDifferentRequest() {
+        billingService.subscribeOrUpgrade(request("FREE", "shared-key-123"));
+        SubscribeRequestDto different = request("PRO", "shared-key-123");
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> billingService.subscribeOrUpgrade(different));
+
+        assertTrue(error.getMessage().contains("different billing request"));
+        assertEquals(1, invoiceRepository.count());
+    }
+
+    @Test
+    void recordsIgnoredStripeEventOnlyOnce() throws Exception {
+        Event event = mock(Event.class);
+        when(event.getId()).thenReturn("evt_duplicate");
+        when(event.getType()).thenReturn("customer.updated");
+        when(stripeGateway.verifyWebhook(anyString(), anyString())).thenReturn(event);
+
+        billingService.processStripeWebhook("{}", "valid-signature");
+        billingService.processStripeWebhook("{}", "valid-signature");
+
+        assertEquals(1, webhookEventRepository.count());
+    }
+
+    @Test
+    void paginatesInvoicesNewestFirst() {
+        billingService.subscribeOrUpgrade(request("FREE", "page-key-001"));
+        billingService.subscribeOrUpgrade(request("FREE", "page-key-002"));
+
+        Page<Invoice> page = billingService.getInvoicesByWorkspace(10L, 0, 1);
+
+        assertEquals(2, page.getTotalElements());
+        assertEquals(1, page.getContent().size());
+        assertEquals(2, page.getTotalPages());
     }
 
     private SubscribeRequestDto request(String plan, String key) {
