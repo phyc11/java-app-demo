@@ -13,6 +13,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.security.Principal;
 import java.util.List;
 import java.util.Map;
+import org.springframework.data.domain.Page;
 
 @RestController
 @RequestMapping("/api/notifications")
@@ -27,10 +28,11 @@ public class NotificationController {
 
     @GetMapping
     public ApiResponse<List<NotificationDTO>> getMyNotifications(
-            @RequestHeader(value = "X-User", required = false) String userHeader, Principal principal) {
+            @RequestHeader(value = "X-User", required = false) String userHeader, Principal principal,
+            @RequestParam(defaultValue="0") int page,@RequestParam(defaultValue="20") int size) {
         String recipient = resolveUser(userHeader, principal);
-        List<NotificationDTO> notifications = notificationService.getUserNotifications(recipient);
-        return ApiResponse.ok("Notifications retrieved successfully", notifications);
+        Page<NotificationDTO> notifications = notificationService.getUserNotifications(recipient,page,size);
+        return ApiResponse.okPage("Notifications retrieved successfully", notifications.getContent(),page,size,notifications.getTotalElements(),notifications.getTotalPages());
     }
 
     @GetMapping("/unread-count")
@@ -68,6 +70,9 @@ public class NotificationController {
         notificationService.markAllAsRead(recipient);
         return ApiResponse.ok("All notifications marked as read", null);
     }
+
+    @PostMapping("/{id}/email/retry")
+    public ApiResponse<NotificationDTO> retryEmail(@PathVariable Long id,@RequestHeader(value="X-User",required=false)String userHeader,Principal principal){return ApiResponse.ok("Email retry requested",notificationService.retryEmail(id,resolveUser(userHeader,principal)));}
 
     @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter streamNotifications(

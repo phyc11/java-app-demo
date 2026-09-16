@@ -13,6 +13,8 @@ import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Sort;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -55,6 +57,11 @@ public class NotificationService {
         return notificationRepository.findByRecipientAndInAppVisibleTrueOrderByTimestampDesc(requireUser(recipient)).stream()
                 .map(NotificationDTO::new)
                 .collect(Collectors.toList());
+    }
+
+    public Page<NotificationDTO> getUserNotifications(String recipient,int page,int size) {
+        if(page<0||size<1||size>100)throw new IllegalArgumentException("page must be >= 0 and size must be 1-100");
+        return notificationRepository.findByRecipientAndInAppVisibleTrue(requireUser(recipient),PageRequest.of(page,size,Sort.by("timestamp").descending())).map(NotificationDTO::new);
     }
 
     public long getUnreadCount(String recipient) {
@@ -142,6 +149,12 @@ public class NotificationService {
         }
         return emitter;
     }
+
+    @Transactional
+    public NotificationDTO retryEmail(Long id,String recipient){Notification n=notificationRepository.findByIdAndRecipient(id,requireUser(recipient)).orElseThrow(()->new ResourceNotFoundException("Notification","id",id));if(n.getEmailStatus()!=EmailDeliveryStatus.FAILED&&n.getEmailStatus()!=EmailDeliveryStatus.SKIPPED_DISABLED)throw new IllegalStateException("Email is not retryable");if(n.getEmailAttempts()>=maxEmailAttempts)throw new IllegalStateException("Maximum email attempts reached");NotificationPreference p=getOrCreatePreference(recipient);if(!p.isEmailEnabled()||p.getEmail()==null)throw new IllegalStateException("Email notifications are disabled");n.setEmailStatus(EmailDeliveryStatus.PENDING);notificationRepository.save(n);attemptEmail(n,p.getEmail());return new NotificationDTO(n);}
+
+    @Scheduled(fixedDelayString="${notification.sse.heartbeat-interval-ms:25000}")
+    public void heartbeat(){emittersMap.forEach((recipient,emitters)->{synchronized(emitters){Iterator<SseEmitter> it=emitters.iterator();while(it.hasNext())try{it.next().send(SseEmitter.event().name("HEARTBEAT").data(java.time.Instant.now().toString()));}catch(Exception e){it.remove();}}});}
 
     private NotificationDTO deliver(String recipient, String title, String message, NotificationType type,
                                     Long resourceId, String resourceType, boolean forceInApp) {
