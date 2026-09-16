@@ -6,6 +6,7 @@ import org.springframework.amqp.support.converter.MessageConverter;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.beans.factory.annotation.Qualifier;
 
 @Configuration
 @ConditionalOnProperty(name = "notification.rabbitmq.enabled", havingValue = "true")
@@ -22,10 +23,10 @@ public class RabbitNotificationConfig {
     public Queue notificationQueue() { return QueueBuilder.durable(QUEUE).deadLetterExchange(DLX).deadLetterRoutingKey(DLQ).build(); }
     @Bean public DirectExchange notificationDeadLetterExchange(){return new DirectExchange(DLX,true,false);}
     @Bean public Queue notificationDeadLetterQueue(){return QueueBuilder.durable(DLQ).build();}
-    @Bean public Binding notificationDeadLetterBinding(Queue notificationDeadLetterQueue,DirectExchange notificationDeadLetterExchange){return BindingBuilder.bind(notificationDeadLetterQueue).to(notificationDeadLetterExchange).with(DLQ);}
+    @Bean public Binding notificationDeadLetterBinding(@Qualifier("notificationDeadLetterQueue") Queue notificationDeadLetterQueue,DirectExchange notificationDeadLetterExchange){return BindingBuilder.bind(notificationDeadLetterQueue).to(notificationDeadLetterExchange).with(DLQ);}
 
     @Bean
-    public Binding notificationBinding(Queue notificationQueue, TopicExchange taskcraftExchange) {
+    public Binding notificationBinding(@Qualifier("notificationQueue") Queue notificationQueue, TopicExchange taskcraftExchange) {
         return BindingBuilder.bind(notificationQueue).to(taskcraftExchange).with("notification.#");
     }
 

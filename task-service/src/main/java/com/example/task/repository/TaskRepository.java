@@ -24,6 +24,7 @@ public interface TaskRepository extends JpaRepository<Task, Long> {
            "(:status IS NULL OR t.status = :status) AND " +
            "(:priority IS NULL OR t.priority = :priority) AND " +
            "(:categoryId IS NULL OR t.category.id = :categoryId) AND " +
+           "(:includeArchived = true OR t.archived = false) AND " +
            "(:search IS NULL OR LOWER(t.title) LIKE LOWER(CONCAT('%', :search, '%')) OR LOWER(t.description) LIKE LOWER(CONCAT('%', :search, '%')))")
     Page<Task> findFilteredTasks(@Param("workspaceId") Long workspaceId,
                                 @Param("projectId") Long projectId,
@@ -32,10 +33,12 @@ public interface TaskRepository extends JpaRepository<Task, Long> {
                                 @Param("status") Status status,
                                 @Param("priority") Priority priority,
                                 @Param("categoryId") Long categoryId,
-                                @Param("search") String search, Pageable pageable);
+                                @Param("search") String search,@Param("includeArchived") boolean includeArchived, Pageable pageable);
 
     long countByStatus(Status status);
     long countByWorkspaceIdAndStatus(Long workspaceId, Status status);
     long countByWorkspaceId(Long workspaceId);
     List<Task> findByParentTaskId(Long parentTaskId);
+    long countByWorkspaceIdAndArchivedFalse(Long workspaceId);
+    long countByWorkspaceIdAndStatusAndArchivedFalse(Long workspaceId,Status status);
 }
