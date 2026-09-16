@@ -51,6 +51,11 @@ public class Task {
     private Integer position = 0;
 
     private LocalDateTime dueDate;
+    @Column(nullable=false) private boolean archived=false;
+    private LocalDateTime archivedAt;
+    private String archivedBy;
+    @Enumerated(EnumType.STRING) private RecurrenceRule recurrenceRule;
+    @Column(nullable=false) private boolean recurrenceGenerated=false;
 
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -117,6 +122,11 @@ public class Task {
 
     public LocalDateTime getDueDate() { return dueDate; }
     public void setDueDate(LocalDateTime dueDate) { this.dueDate = dueDate; }
+    public boolean isArchived(){return archived;} public void setArchived(boolean v){archived=v;}
+    public LocalDateTime getArchivedAt(){return archivedAt;} public void setArchivedAt(LocalDateTime v){archivedAt=v;}
+    public String getArchivedBy(){return archivedBy;} public void setArchivedBy(String v){archivedBy=v;}
+    public RecurrenceRule getRecurrenceRule(){return recurrenceRule;} public void setRecurrenceRule(RecurrenceRule v){recurrenceRule=v;}
+    public boolean isRecurrenceGenerated(){return recurrenceGenerated;} public void setRecurrenceGenerated(boolean v){recurrenceGenerated=v;}
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }

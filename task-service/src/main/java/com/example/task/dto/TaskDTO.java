@@ -20,11 +20,11 @@ public class TaskDTO {
     private Set<String> watchers = new LinkedHashSet<>();
     private Set<Long> dependencyIds = new LinkedHashSet<>();
 
-    @NotBlank(message = "Tiêu đề Task không được để trống!")
-    @Size(max = 255, message = "Tiêu đề Task tối đa 255 ký tự!")
+    @NotBlank(message = "Task title is required")
+    @Size(max = 255, message = "Task title must not exceed 255 characters")
     private String title;
 
-    @Size(max = 2000, message = "Mô tả Task tối đa 2000 ký tự!")
+    @Size(max = 2000, message = "Task description must not exceed 2000 characters")
     private String description;
 
     private Status status;
@@ -37,6 +37,10 @@ public class TaskDTO {
     private LocalDateTime dueDate;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+    private boolean archived;
+    private LocalDateTime archivedAt;
+    private String archivedBy;
+    private com.example.task.model.RecurrenceRule recurrenceRule;
 
     public TaskDTO() {}
 
@@ -62,6 +66,7 @@ public class TaskDTO {
         this.dueDate = task.getDueDate();
         this.createdAt = task.getCreatedAt();
         this.updatedAt = task.getUpdatedAt();
+        this.archived=task.isArchived();this.archivedAt=task.getArchivedAt();this.archivedBy=task.getArchivedBy();this.recurrenceRule=task.getRecurrenceRule();
     }
 
     public Long getId() { return id; }
@@ -116,4 +121,6 @@ public class TaskDTO {
 
     public LocalDateTime getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
+    public boolean isArchived(){return archived;} public void setArchived(boolean v){archived=v;} public LocalDateTime getArchivedAt(){return archivedAt;} public void setArchivedAt(LocalDateTime v){archivedAt=v;} public String getArchivedBy(){return archivedBy;} public void setArchivedBy(String v){archivedBy=v;}
+    public com.example.task.model.RecurrenceRule getRecurrenceRule(){return recurrenceRule;} public void setRecurrenceRule(com.example.task.model.RecurrenceRule v){recurrenceRule=v;}
 }

@@ -42,7 +42,9 @@ public class NotificationController {
     }
 
     @PostMapping("/send")
-    public ApiResponse<NotificationDTO> sendNotification(@RequestBody Map<String, String> body) {
+    public ApiResponse<NotificationDTO> sendNotification(@RequestBody Map<String, String> body,
+            @RequestHeader("X-Role") String role) {
+        if (!"ROLE_ADMIN".equals(role)) throw new SecurityException("Administrator role required");
         String recipient = body.getOrDefault("recipient", "admin");
         String title = body.getOrDefault("title", "Thông Báo Mới");
         String message = body.getOrDefault("message", "Nội dung thông báo hệ thống.");

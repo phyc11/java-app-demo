@@ -20,12 +20,14 @@ class NotificationServiceIntegrationTest {
     @Autowired private NotificationRepository notificationRepository;
     @Autowired private NotificationPreferenceRepository preferenceRepository;
     @Autowired private ProcessedEventRepository processedEventRepository;
+    @Autowired private NotificationTemplateRepository templateRepository;
 
     @BeforeEach
     void cleanDatabase() {
         processedEventRepository.deleteAll();
         notificationRepository.deleteAll();
         preferenceRepository.deleteAll();
+        templateRepository.deleteAll();
     }
 
     @Test
@@ -107,6 +109,22 @@ class NotificationServiceIntegrationTest {
 
         assertEquals(1, notificationRepository.count());
         assertEquals(1, processedEventRepository.count());
+    }
+
+    @Test
+    void templateRendersEventVariables() {
+        templateRepository.save(new NotificationTemplate("MENTION", "{actor} mentioned you", "{message} on {resourceType} #{resourceId}"));
+        NotificationEvent event=event("evt-template","MENTION","alice"); event.setActor("bob"); event.setResourceType("COMMENT"); event.setResourceId(9L);
+        NotificationDTO result=notificationService.processEvent(event);
+        assertEquals("bob mentioned you",result.getTitle());
+        assertEquals("Test event message on COMMENT #9",result.getMessage());
+    }
+
+    @Test
+    void digestPreferenceQueuesEmailInsteadOfSendingImmediately() {
+        NotificationPreferenceRequest request=new NotificationPreferenceRequest(); request.setEmail("alice@example.com"); request.setEmailEnabled(true); request.setDigestEmailEnabled(true); notificationService.updatePreference("alice",request);
+        notificationService.processEvent(event("evt-digest","TASK_ASSIGNED","alice"));
+        assertEquals(EmailDeliveryStatus.PENDING_DIGEST,notificationRepository.findAll().get(0).getEmailStatus());
     }
 
     private NotificationEvent event(String id, String type, String recipient) {
