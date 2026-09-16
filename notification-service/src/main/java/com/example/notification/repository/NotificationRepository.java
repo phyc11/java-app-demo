@@ -9,15 +9,26 @@ import java.util.Optional;
 import com.example.notification.model.EmailDeliveryStatus;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Page;
+import com.example.notification.model.NotificationType;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 @Repository
 public interface NotificationRepository extends JpaRepository<Notification, Long> {
     List<Notification> findByRecipientOrderByTimestampDesc(String recipient);
     List<Notification> findByRecipientAndInAppVisibleTrueOrderByTimestampDesc(String recipient);
     Page<Notification> findByRecipientAndInAppVisibleTrue(String recipient,Pageable pageable);
+    @Query("select n from Notification n where n.recipient=:recipient and n.inAppVisible=true " +
+            "and (:type is null or n.type=:type) and (:unreadOnly=false or n.isRead=false)")
+    Page<Notification> findInbox(@Param("recipient") String recipient,@Param("type") NotificationType type,
+                                 @Param("unreadOnly") boolean unreadOnly,Pageable pageable);
     long countByRecipientAndIsReadFalse(String recipient);
     long countByRecipientAndIsReadFalseAndInAppVisibleTrue(String recipient);
     Optional<Notification> findByIdAndRecipient(Long id, String recipient);
+    @Modifying
+    @Query("update Notification n set n.isRead=true where n.recipient=:recipient and n.inAppVisible=true and n.isRead=false")
+    int markAllVisibleAsRead(@Param("recipient") String recipient);
     List<Notification> findByEmailStatusAndEmailAttemptsLessThanOrderByTimestampAsc(EmailDeliveryStatus status,int attempts,Pageable pageable);
     List<Notification> findByRecipientAndEmailStatusOrderByTimestampAsc(String recipient,EmailDeliveryStatus status);
 }

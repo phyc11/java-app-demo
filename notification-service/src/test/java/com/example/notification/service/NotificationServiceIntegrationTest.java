@@ -127,6 +127,27 @@ class NotificationServiceIntegrationTest {
         assertEquals(EmailDeliveryStatus.PENDING_DIGEST,notificationRepository.findAll().get(0).getEmailStatus());
     }
 
+    @Test
+    void inboxCanFilterUnreadNotificationsByType() {
+        NotificationDTO mention=notificationService.processEvent(event("evt-filter-1","MENTION","alice"));
+        notificationService.processEvent(event("evt-filter-2","TASK_ASSIGNED","alice"));
+        notificationService.markAsRead(mention.getId(),"alice");
+
+        assertEquals(0,notificationService.getUserNotifications("alice","MENTION",true,0,20).getTotalElements());
+        assertEquals(1,notificationService.getUserNotifications("alice","TASK_ASSIGNED",true,0,20).getTotalElements());
+    }
+
+    @Test
+    void dismissOnlyHidesNotificationFromItsOwnerInbox() {
+        NotificationDTO notification=notificationService.processEvent(event("evt-dismiss","COMMENT_REPLY","alice"));
+
+        assertThrows(RuntimeException.class,()->notificationService.dismiss(notification.getId(),"bob"));
+        notificationService.dismiss(notification.getId(),"alice");
+
+        assertTrue(notificationService.getUserNotifications("alice").isEmpty());
+        assertEquals(1,notificationRepository.count());
+    }
+
     private NotificationEvent event(String id, String type, String recipient) {
         NotificationEvent event = new NotificationEvent();
         event.setEventId(id);
