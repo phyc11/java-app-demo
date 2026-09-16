@@ -6,6 +6,9 @@ import com.example.billing.repository.*;
 import com.example.billing.stripe.StripeGateway;
 import com.stripe.model.Event;
 import com.stripe.model.PaymentIntent;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,6 +28,7 @@ public class BillingService {
     private final InvoiceRepository invoiceRepository;
     private final SubscriptionHistoryRepository historyRepository;
     private final WorkspaceUsageRepository usageRepository;
+    private final StripeWebhookEventRepository webhookEventRepository;
     private final StripeGateway stripeGateway;
 
     public BillingService(SubscriptionPlanRepository planRepository,
@@ -32,12 +36,14 @@ public class BillingService {
                           InvoiceRepository invoiceRepository,
                           SubscriptionHistoryRepository historyRepository,
                           WorkspaceUsageRepository usageRepository,
+                          StripeWebhookEventRepository webhookEventRepository,
                           StripeGateway stripeGateway) {
         this.planRepository = planRepository;
         this.subscriptionRepository = subscriptionRepository;
         this.invoiceRepository = invoiceRepository;
         this.historyRepository = historyRepository;
         this.usageRepository = usageRepository;
+        this.webhookEventRepository = webhookEventRepository;
         this.stripeGateway = stripeGateway;
     }
 
@@ -103,7 +109,10 @@ public class BillingService {
                 .orElseThrow(() -> new IllegalArgumentException("Subscription plan not found: " + planName));
         String idempotencyKey = requireIdempotencyKey(request.getIdempotencyKey());
         Invoice existing = invoiceRepository.findByIdempotencyKey(idempotencyKey).orElse(null);
-        if (existing != null) return existing;
+        if (existing != null) {
+            validateIdempotentRequest(existing, request, planName);
+            return existing;
+        }
 
         // If plan is FREE, activate immediately without invoice payment
         if ("FREE".equals(planName) || plan.getMonthlyPrice() == 0.0) {
@@ -183,7 +192,13 @@ public class BillingService {
         final Event event;
         try { event = stripeGateway.verifyWebhook(payload, signature); }
         catch (Exception exception) { throw new IllegalArgumentException("Invalid Stripe webhook signature", exception); }
-        if (!"payment_intent.succeeded".equals(event.getType()) && !"payment_intent.payment_failed".equals(event.getType())) return;
+        if (event.getId() == null || event.getId().trim().isEmpty())
+            throw new IllegalArgumentException("Stripe webhook event ID is required");
+        if (webhookEventRepository.existsByEventId(event.getId())) return;
+        if (!"payment_intent.succeeded".equals(event.getType()) && !"payment_intent.payment_failed".equals(event.getType())) {
+            webhookEventRepository.save(new StripeWebhookEvent(event.getId(), event.getType()));
+            return;
+        }
         Object object = event.getDataObjectDeserializer().getObject().orElse(null);
         if (!(object instanceof PaymentIntent)) throw new IllegalArgumentException("Stripe webhook has no PaymentIntent payload");
         PaymentIntent intent = (PaymentIntent) object;
@@ -191,6 +206,7 @@ public class BillingService {
                 .orElseThrow(() -> new IllegalArgumentException("Invoice not found for PaymentIntent: " + intent.getId()));
         if ("payment_intent.succeeded".equals(event.getType())) activatePaidInvoice(invoice, intent.getId());
         else if (!"PAID".equals(invoice.getPaymentStatus())) { invoice.setPaymentStatus("FAILED"); invoiceRepository.save(invoice); }
+        webhookEventRepository.save(new StripeWebhookEvent(event.getId(), event.getType()));
     }
 
     @Transactional
@@ -294,6 +310,34 @@ public class BillingService {
 
     public List<Invoice> getInvoicesByUser(String username) {
         return invoiceRepository.findByOwnerUsername(username);
+    }
+
+    public Page<Invoice> getInvoicesByWorkspace(Long workspaceId, int page, int size) {
+        return invoiceRepository.findByWorkspaceId(workspaceId, pageRequest(page, size, "createdAt"));
+    }
+
+    public Page<Invoice> getInvoicesByUser(String username, int page, int size) {
+        return invoiceRepository.findByOwnerUsername(username, pageRequest(page, size, "createdAt"));
+    }
+
+    public Page<SubscriptionHistory> getSubscriptionHistory(Long workspaceId, int page, int size) {
+        return historyRepository.findByWorkspaceId(workspaceId, pageRequest(page, size, "changedAt"));
+    }
+
+    private PageRequest pageRequest(int page, int size, String sortProperty) {
+        if (page < 0 || size < 1 || size > 100)
+            throw new IllegalArgumentException("page must be >= 0 and size must be 1-100");
+        return PageRequest.of(page, size, Sort.by(sortProperty).descending());
+    }
+
+    private void validateIdempotentRequest(Invoice invoice, SubscribeRequestDto request, String planName) {
+        String requestedCurrency = request.getCurrency() == null ? "USD" : request.getCurrency().toUpperCase(Locale.ROOT);
+        if (!invoice.getWorkspaceId().equals(request.getWorkspaceId())
+                || !invoice.getOwnerUsername().equals(request.getOwnerUsername())
+                || !invoice.getPlanName().equals(planName)
+                || !invoice.getCurrency().equalsIgnoreCase(requestedCurrency)) {
+            throw new IllegalArgumentException("Idempotency key was already used for a different billing request");
+        }
     }
 
     private Long usageValue(Long workspaceId, String type) {

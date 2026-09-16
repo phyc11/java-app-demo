@@ -5,6 +5,7 @@ import com.example.billing.model.*;
 import com.example.billing.service.BillingService;
 import com.example.common.dto.ApiResponse;
 import org.springframework.http.ResponseEntity;
+import org.springframework.data.domain.Page;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -56,15 +57,19 @@ public class BillingController {
     }
 
     @GetMapping("/invoices/workspace/{workspaceId}")
-    public ResponseEntity<ApiResponse<List<Invoice>>> getInvoicesByWorkspace(@PathVariable Long workspaceId) {
-        List<Invoice> invoices = billingService.getInvoicesByWorkspace(workspaceId);
-        return ResponseEntity.ok(ApiResponse.ok("Invoices retrieved for workspace", invoices));
+    public ResponseEntity<ApiResponse<List<Invoice>>> getInvoicesByWorkspace(@PathVariable Long workspaceId,
+            @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size) {
+        Page<Invoice> invoices = billingService.getInvoicesByWorkspace(workspaceId, page, size);
+        return ResponseEntity.ok(ApiResponse.okPage("Invoices retrieved for workspace", invoices.getContent(),
+                invoices.getNumber(), invoices.getSize(), invoices.getTotalElements(), invoices.getTotalPages()));
     }
 
     @GetMapping("/invoices/user/{username}")
-    public ResponseEntity<ApiResponse<List<Invoice>>> getInvoicesByUser(@PathVariable String username) {
-        List<Invoice> invoices = billingService.getInvoicesByUser(username);
-        return ResponseEntity.ok(ApiResponse.ok("Invoices retrieved for user", invoices));
+    public ResponseEntity<ApiResponse<List<Invoice>>> getInvoicesByUser(@PathVariable String username,
+            @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size) {
+        Page<Invoice> invoices = billingService.getInvoicesByUser(username, page, size);
+        return ResponseEntity.ok(ApiResponse.okPage("Invoices retrieved for user", invoices.getContent(),
+                invoices.getNumber(), invoices.getSize(), invoices.getTotalElements(), invoices.getTotalPages()));
     }
 
     @PostMapping("/usage")
@@ -78,7 +83,10 @@ public class BillingController {
     }
 
     @GetMapping("/subscriptions/workspace/{workspaceId}/history")
-    public ResponseEntity<ApiResponse<List<SubscriptionHistory>>> getSubscriptionHistory(@PathVariable Long workspaceId) {
-        return ResponseEntity.ok(ApiResponse.ok("Subscription history retrieved", billingService.getSubscriptionHistory(workspaceId)));
+    public ResponseEntity<ApiResponse<List<SubscriptionHistory>>> getSubscriptionHistory(@PathVariable Long workspaceId,
+            @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size) {
+        Page<SubscriptionHistory> history = billingService.getSubscriptionHistory(workspaceId, page, size);
+        return ResponseEntity.ok(ApiResponse.okPage("Subscription history retrieved", history.getContent(),
+                history.getNumber(), history.getSize(), history.getTotalElements(), history.getTotalPages()));
     }
 }
