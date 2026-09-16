@@ -2,12 +2,14 @@ package com.example.analytics.service;
 
 import com.example.analytics.dto.*; import com.example.analytics.model.AnalyticsSnapshot; import com.example.analytics.repository.AnalyticsSnapshotRepository;
 import com.fasterxml.jackson.core.type.TypeReference; import com.fasterxml.jackson.databind.*; import org.springframework.beans.factory.annotation.Value; import org.springframework.cache.annotation.*;
+import org.springframework.data.domain.Page; import org.springframework.data.domain.PageRequest; import org.springframework.data.domain.Sort;
 import org.springframework.scheduling.annotation.Scheduled; import org.springframework.stereotype.Service; import org.springframework.web.client.RestTemplate; import org.springframework.web.util.UriComponentsBuilder;
+import org.springframework.transaction.annotation.Transactional;
 import java.time.*; import java.time.temporal.ChronoUnit; import java.util.*; import java.util.function.Function; import java.util.stream.Collectors;
 
 @Service public class AnalyticsService {
- private final AnalyticsSnapshotRepository snapshots; private final RestTemplate http=new RestTemplate(); private final ObjectMapper json=new ObjectMapper().findAndRegisterModules(); private final String taskUrl; private final int pageSize;
- public AnalyticsService(AnalyticsSnapshotRepository snapshots,@Value("${task-service.url:http://localhost:8082}")String taskUrl,@Value("${analytics.snapshot.page-size:200}")int pageSize){this.snapshots=snapshots;this.taskUrl=taskUrl;this.pageSize=pageSize;}
+ private final AnalyticsSnapshotRepository snapshots; private final RestTemplate http=new RestTemplate(); private final ObjectMapper json=new ObjectMapper().findAndRegisterModules(); private final String taskUrl; private final int pageSize; private final int retentionDays;
+ public AnalyticsService(AnalyticsSnapshotRepository snapshots,@Value("${task-service.url:http://localhost:8082}")String taskUrl,@Value("${analytics.snapshot.page-size:200}")int pageSize,@Value("${analytics.snapshot.retention-days:90}")int retentionDays){this.snapshots=snapshots;this.taskUrl=taskUrl;this.pageSize=pageSize;this.retentionDays=retentionDays;}
 
  @Cacheable(value="dashboards",key="#workspaceId.toString() + ':' + (#projectId == null ? 'all' : #projectId.toString())")
  public AnalyticsDTO getAnalytics(Long workspaceId,Long projectId){requireWorkspace(workspaceId);Optional<AnalyticsSnapshot>s=projectId==null?snapshots.findFirstByWorkspaceIdAndProjectIdIsNullOrderByCapturedAtDesc(workspaceId):snapshots.findFirstByWorkspaceIdAndProjectIdOrderByCapturedAtDesc(workspaceId,projectId);if(!s.isPresent()){refreshSnapshots();s=projectId==null?snapshots.findFirstByWorkspaceIdAndProjectIdIsNullOrderByCapturedAtDesc(workspaceId):snapshots.findFirstByWorkspaceIdAndProjectIdOrderByCapturedAtDesc(workspaceId,projectId);}return s.map(this::toDto).orElseGet(()->empty(workspaceId,projectId));}
@@ -15,6 +17,12 @@ import java.time.*; import java.time.temporal.ChronoUnit; import java.util.*; im
  @Scheduled(fixedDelayString="${analytics.snapshot.interval-ms:300000}",initialDelayString="${analytics.snapshot.initial-delay-ms:10000}")
  @CacheEvict(value="dashboards",allEntries=true)
  public void refreshSnapshots(){List<TaskRecord>tasks=fetchTasks();Map<Long,List<TaskRecord>>workspaces=tasks.stream().filter(t->t.workspaceId!=null).collect(Collectors.groupingBy(t->t.workspaceId));for(Map.Entry<Long,List<TaskRecord>>w:workspaces.entrySet()){save(w.getKey(),null,w.getValue());w.getValue().stream().filter(t->t.projectId!=null).collect(Collectors.groupingBy(t->t.projectId)).forEach((p,list)->save(w.getKey(),p,list));}}
+
+ public Page<AnalyticsDTO> getHistory(Long workspaceId,Long projectId,int page,int size){requireWorkspace(workspaceId);if(page<0||size<1||size>100)throw new IllegalArgumentException("page must be >= 0 and size must be 1-100");PageRequest pageable=PageRequest.of(page,size,Sort.by("capturedAt").descending());Page<AnalyticsSnapshot>result=projectId==null?snapshots.findByWorkspaceIdAndProjectIdIsNull(workspaceId,pageable):snapshots.findByWorkspaceIdAndProjectId(workspaceId,projectId,pageable);return result.map(this::toDto);}
+
+ @Scheduled(cron="${analytics.snapshot.cleanup-cron:0 15 3 * * *}")
+ @Transactional
+ public long cleanupSnapshots(){if(retentionDays<1)throw new IllegalArgumentException("analytics.snapshot.retention-days must be positive");return snapshots.deleteByCapturedAtBefore(LocalDateTime.now().minusDays(retentionDays));}
 
  void save(Long workspace,Long project,List<TaskRecord> tasks){AnalyticsSnapshot s=new AnalyticsSnapshot();s.setWorkspaceId(workspace);s.setProjectId(project);s.setTotalTasks(tasks.size());long completed=tasks.stream().filter(t->"COMPLETED".equals(t.status)).count();s.setCompletedTasks(completed);s.setCompletionRate(tasks.isEmpty()?0:round(completed*100d/tasks.size()));s.setOverdueTasks(tasks.stream().filter(t->t.dueDate!=null&&t.dueDate.isBefore(LocalDateTime.now())&&!"COMPLETED".equals(t.status)).count());Map<String,Long>status=tasks.stream().collect(Collectors.groupingBy(t->Optional.ofNullable(t.status).orElse("UNKNOWN"),LinkedHashMap::new,Collectors.counting()));Map<String,Long>load=tasks.stream().filter(t->!"COMPLETED".equals(t.status)).collect(Collectors.groupingBy(t->Optional.ofNullable(t.assignee).orElse("UNASSIGNED"),LinkedHashMap::new,Collectors.counting()));s.setStatusJson(write(status));s.setWorkloadJson(write(load));List<TaskRecord>done=tasks.stream().filter(t->"COMPLETED".equals(t.status)&&t.createdAt!=null&&t.updatedAt!=null).collect(Collectors.toList());s.setAverageLeadTimeHours(average(done,t->hours(t.createdAt,t.updatedAt)));s.setAverageCycleTimeHours(average(done,t->cycleHours(t)));snapshots.save(s);}
 
