@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
+import org.springframework.data.domain.Page;
 
 @RestController
 @RequestMapping("/api/files")
@@ -34,8 +35,8 @@ public class FileController {
 
     @GetMapping("/{fileId}")
     public ResponseEntity<ApiResponse<FileUploadResponseDto>> getFileMetadata(@PathVariable Long fileId,
-            @RequestHeader("X-Workspace-Id") Long workspaceId) {
-        FileMetadata metadata = fileStorageService.getFileMetadata(fileId, workspaceId);
+            @RequestHeader("X-Workspace-Id") Long workspaceId,@RequestHeader("X-User") String username) {
+        FileMetadata metadata = fileStorageService.getFileMetadata(fileId, workspaceId,username);
         FileUploadResponseDto dto = fileStorageService.mapToDto(metadata);
         return ResponseEntity.ok(ApiResponse.ok("File metadata retrieved", dto));
     }
@@ -44,10 +45,12 @@ public class FileController {
     public ResponseEntity<ApiResponse<List<FileUploadResponseDto>>> getFilesByEntity(
             @PathVariable String entityType,
             @PathVariable Long entityId,
-            @RequestHeader("X-Workspace-Id") Long workspaceId) {
+            @RequestHeader("X-Workspace-Id") Long workspaceId,@RequestHeader("X-User") String username,
+            @RequestParam(defaultValue="0") int page,@RequestParam(defaultValue="20") int size) {
 
-        List<FileUploadResponseDto> files = fileStorageService.getFilesByEntity(entityType, entityId, workspaceId);
-        return ResponseEntity.ok(ApiResponse.ok("Found " + files.size() + " attachments for " + entityType + " #" + entityId, files));
+        Page<FileUploadResponseDto> files = fileStorageService.getFilesByEntity(entityType,entityId,workspaceId,username,page,size);
+        return ResponseEntity.ok(ApiResponse.okPage("Attachments retrieved for " + entityType + " #" + entityId,
+                files.getContent(),files.getNumber(),files.getSize(),files.getTotalElements(),files.getTotalPages()));
     }
 
     @DeleteMapping("/{fileId}")

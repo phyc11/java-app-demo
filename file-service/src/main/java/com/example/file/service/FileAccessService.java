@@ -4,7 +4,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.http.*;
 
 @Service
 public class FileAccessService {
@@ -17,9 +19,15 @@ public class FileAccessService {
     }
 
     public void assertTaskInWorkspace(Long taskId, Long workspaceId) {
+        assertTaskInWorkspace(taskId,workspaceId,null);
+    }
+
+    public void assertTaskInWorkspace(Long taskId, Long workspaceId, String actor) {
         if (taskId == null) throw new IllegalArgumentException("entityId is required for TASK files");
         try {
-            String body = http.getForObject(taskServiceUrl + "/api/tasks/" + taskId, String.class);
+            HttpHeaders headers=new HttpHeaders();headers.set("X-Workspace-Id",workspaceId.toString());
+            if(actor!=null&&!actor.trim().isEmpty())headers.set("X-User",actor.trim());
+            String body = http.exchange(taskServiceUrl + "/api/tasks/" + taskId,HttpMethod.GET,new HttpEntity<>(headers),String.class).getBody();
             JsonNode data = json.readTree(body).path("data");
             if (!workspaceId.equals(data.path("workspaceId").asLong()))
                 throw new SecurityException("Task does not belong to this workspace");
@@ -29,6 +37,9 @@ public class FileAccessService {
 
     public boolean taskExists(Long taskId, Long workspaceId) {
         try { assertTaskInWorkspace(taskId, workspaceId); return true; }
-        catch (RuntimeException e) { return false; }
+        catch (IllegalArgumentException e) {
+            if(e.getCause() instanceof HttpClientErrorException.NotFound)return false;
+            throw e;
+        }
     }
 }

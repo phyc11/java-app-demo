@@ -9,6 +9,8 @@ import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 
 import java.util.Optional;
+import java.time.LocalDateTime;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.*;
@@ -40,5 +42,27 @@ class FileStorageServiceTest {
         when(repository.findById(3L)).thenReturn(Optional.of(metadata));
         assertThrows(SecurityException.class,()->service.deleteFile(3L,2L,"bob","MEMBER"));
         verify(repository,never()).delete(any());
+    }
+
+    @Test void rejectsUnsupportedEntityType() {
+        MockMultipartFile file=new MockMultipartFile("file","a.txt","text/plain","123".getBytes());
+        assertThrows(IllegalArgumentException.class,()->service.storeFile(file,"USER",1L,2L,"alice"));
+        verifyNoInteractions(access);
+    }
+
+    @Test void cleanupDoesNotDeleteWhenTaskServiceIsUnavailable() {
+        FileMetadata metadata=new FileMetadata("a.txt","key","text/plain",1L,"S3","TASK",1L,2L,"alice");
+        metadata.setUploadedAt(LocalDateTime.now().minusDays(2));
+        when(repository.findByUploadedAtBefore(any())).thenReturn(List.of(metadata));
+        when(access.taskExists(1L,2L)).thenThrow(new IllegalStateException("task-service unavailable"));
+
+        assertThrows(IllegalStateException.class,()->service.cleanupOrphans());
+
+        verify(repository,never()).delete(any());
+    }
+
+    @Test void validatesAttachmentPagination() {
+        assertThrows(IllegalArgumentException.class,()->service.getFilesByEntity("TASK",1L,2L,"alice",0,101));
+        verifyNoInteractions(access);
     }
 }

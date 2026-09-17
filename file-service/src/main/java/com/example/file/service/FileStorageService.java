@@ -5,6 +5,9 @@ import com.example.file.model.FileMetadata;
 import com.example.file.repository.FileMetadataRepository;
 import org.apache.tika.Tika;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -63,11 +66,12 @@ public class FileStorageService {
         if (file.isEmpty()) throw new IllegalArgumentException("Cannot upload an empty file");
         if (file.getSize() > maxSize) throw new IllegalArgumentException("File exceeds maximum size of " + maxSize + " bytes");
         String type = entityType == null ? "TASK" : entityType.trim().toUpperCase();
-        if ("TASK".equals(type)) access.assertTaskInWorkspace(entityId, workspaceId);
+        if (!Set.of("TASK","COMMENT").contains(type)) throw new IllegalArgumentException("Unsupported entity type: " + type);
+        if ("TASK".equals(type)) access.assertTaskInWorkspace(entityId, workspaceId, uploadedBy);
         byte[] bytes;
         try { bytes=file.getBytes(); } catch (IOException e) { throw new IllegalArgumentException("Cannot read upload", e); }
-        String original=StringUtils.cleanPath(Optional.ofNullable(file.getOriginalFilename()).orElse("unnamed"));
-        if (original.contains("..")) throw new IllegalArgumentException("Invalid filename");
+        String original=StringUtils.cleanPath(Optional.ofNullable(file.getOriginalFilename()).orElse("unnamed")).replaceAll("[\\r\\n\\u0000]","");
+        if (original.contains("..")||original.length()>255||!StringUtils.hasText(original)) throw new IllegalArgumentException("Invalid filename");
         String detected;
         try { detected=tika.detect(bytes, original).toLowerCase(); } catch (Exception e) { throw new IllegalArgumentException("Cannot detect MIME type",e); }
         if (!allowedTypes.contains(detected)) throw new IllegalArgumentException("Detected MIME type is not allowed: " + detected);
@@ -85,9 +89,23 @@ public class FileStorageService {
         assertWorkspace(metadata, workspaceId); return metadata;
     }
 
+    public FileMetadata getFileMetadata(Long fileId,Long workspaceId,String actor) {
+        FileMetadata metadata=getFileMetadata(fileId,workspaceId);
+        if("TASK".equals(metadata.getEntityType()))access.assertTaskInWorkspace(metadata.getEntityId(),workspaceId,actor);
+        return metadata;
+    }
+
     public List<FileUploadResponseDto> getFilesByEntity(String entityType, Long entityId, Long workspaceId) {
         return repository.findByEntityTypeAndEntityId(entityType.toUpperCase(),entityId).stream()
                 .filter(f -> workspaceId.equals(f.getWorkspaceId())).map(this::mapToDto).collect(Collectors.toList());
+    }
+
+    public Page<FileUploadResponseDto> getFilesByEntity(String entityType,Long entityId,Long workspaceId,String actor,int page,int size) {
+        if(page<0||size<1||size>100)throw new IllegalArgumentException("page must be >= 0 and size must be 1-100");
+        String type=requiredEntityType(entityType);
+        if("TASK".equals(type))access.assertTaskInWorkspace(entityId,workspaceId,actor);
+        return repository.findByEntityTypeAndEntityIdAndWorkspaceId(type,entityId,workspaceId,
+                PageRequest.of(page,size,Sort.by("uploadedAt").descending())).map(this::mapToDto);
     }
 
     @Transactional
@@ -117,6 +135,7 @@ public class FileStorageService {
     }
 
     private void requireIdentity(Long workspaceId,String user){if(workspaceId==null)throw new IllegalArgumentException("X-Workspace-Id is required");if(!StringUtils.hasText(user))throw new SecurityException("Trusted X-User is required");}
+    private String requiredEntityType(String value){if(!StringUtils.hasText(value))throw new IllegalArgumentException("entityType is required");String type=value.trim().toUpperCase();if(!Set.of("TASK","COMMENT").contains(type))throw new IllegalArgumentException("Unsupported entity type: "+type);return type;}
     private void assertWorkspace(FileMetadata f,Long id){if(id==null||!id.equals(f.getWorkspaceId()))throw new SecurityException("File does not belong to this workspace");}
     private void deleteObject(String key){s3.deleteObject(DeleteObjectRequest.builder().bucket(bucket).key(key).build());}
 }
