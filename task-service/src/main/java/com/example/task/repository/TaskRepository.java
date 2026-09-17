@@ -39,6 +39,7 @@ public interface TaskRepository extends JpaRepository<Task, Long> {
     long countByWorkspaceIdAndStatus(Long workspaceId, Status status);
     long countByWorkspaceId(Long workspaceId);
     List<Task> findByParentTaskId(Long parentTaskId);
+    Page<Task> findByParentTaskIdAndWorkspaceIdAndArchivedFalse(Long parentTaskId,Long workspaceId,Pageable pageable);
     long countByWorkspaceIdAndArchivedFalse(Long workspaceId);
     long countByWorkspaceIdAndStatusAndArchivedFalse(Long workspaceId,Status status);
 }
