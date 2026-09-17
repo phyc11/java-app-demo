@@ -3,6 +3,8 @@ package com.example.notification.controller;
 import com.example.common.dto.ApiResponse;
 import com.example.notification.dto.NotificationDTO;
 import com.example.notification.dto.NotificationPreferenceRequest;
+import com.example.notification.dto.NotificationBulkRequest;
+import com.example.notification.dto.NotificationSummaryDTO;
 import com.example.notification.model.NotificationPreference;
 import com.example.notification.service.NotificationService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -42,6 +44,26 @@ public class NotificationController {
         String recipient = resolveUser(userHeader, principal);
         long count = notificationService.getUnreadCount(recipient);
         return ApiResponse.ok("Unread count retrieved", Map.of("unreadCount", count));
+    }
+
+    @GetMapping("/summary")
+    public ApiResponse<NotificationSummaryDTO> getSummary(
+            @RequestHeader(value="X-User",required=false) String userHeader,Principal principal){
+        return ApiResponse.ok("Notification summary retrieved",notificationService.getSummary(resolveUser(userHeader,principal)));
+    }
+
+    @PostMapping("/bulk/read")
+    public ApiResponse<Map<String,Integer>> bulkRead(@RequestBody NotificationBulkRequest request,
+            @RequestHeader(value="X-User",required=false) String userHeader,Principal principal){
+        int updated=notificationService.bulkMarkAsRead(resolveUser(userHeader,principal),request);
+        return ApiResponse.ok("Notifications marked as read",Map.of("updated",updated));
+    }
+
+    @PostMapping("/bulk/dismiss")
+    public ApiResponse<Map<String,Integer>> bulkDismiss(@RequestBody NotificationBulkRequest request,
+            @RequestHeader(value="X-User",required=false) String userHeader,Principal principal){
+        int updated=notificationService.bulkDismiss(resolveUser(userHeader,principal),request);
+        return ApiResponse.ok("Notifications dismissed",Map.of("updated",updated));
     }
 
     @PostMapping("/send")

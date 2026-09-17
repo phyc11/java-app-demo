@@ -75,6 +75,25 @@ public class NotificationService {
         return notificationRepository.countByRecipientAndIsReadFalseAndInAppVisibleTrue(requireUser(recipient));
     }
 
+    public NotificationSummaryDTO getSummary(String recipient) {
+        String user=requireUser(recipient);Map<String,Long> byType=new LinkedHashMap<>();
+        for(Object[] row:notificationRepository.countUnreadByType(user))byType.put(((NotificationType)row[0]).name(),(Long)row[1]);
+        return new NotificationSummaryDTO(notificationRepository.countByRecipientAndInAppVisibleTrue(user),
+                notificationRepository.countByRecipientAndIsReadFalseAndInAppVisibleTrue(user),byType);
+    }
+
+    @Transactional
+    public int bulkMarkAsRead(String recipient,NotificationBulkRequest request) {
+        List<Notification> notifications=ownedBulk(recipient,request);notifications.forEach(n->n.setRead(true));
+        notificationRepository.saveAll(notifications);return notifications.size();
+    }
+
+    @Transactional
+    public int bulkDismiss(String recipient,NotificationBulkRequest request) {
+        List<Notification> notifications=ownedBulk(recipient,request);notifications.forEach(n->n.setInAppVisible(false));
+        notificationRepository.saveAll(notifications);return notifications.size();
+    }
+
     @Transactional
     public NotificationDTO sendNotification(String recipient, String title, String message, String type) {
         return deliver(requireUser(recipient), required(title, "Title"), required(message, "Message"),
@@ -232,6 +251,17 @@ public class NotificationService {
     private NotificationPreference getOrCreatePreference(String username) {
         return preferenceRepository.findByUsername(username)
                 .orElseGet(() -> preferenceRepository.save(new NotificationPreference(username)));
+    }
+
+    private List<Notification> ownedBulk(String recipient,NotificationBulkRequest request) {
+        String user=requireUser(recipient);
+        if(request==null||request.getNotificationIds()==null||request.getNotificationIds().isEmpty())throw new IllegalArgumentException("notificationIds are required");
+        Set<Long> ids=new LinkedHashSet<>(request.getNotificationIds());
+        if(ids.contains(null))throw new IllegalArgumentException("notificationIds cannot contain null");
+        if(ids.size()>100)throw new IllegalArgumentException("Bulk action supports at most 100 notifications");
+        List<Notification> notifications=notificationRepository.findAllByIdInAndRecipientAndInAppVisibleTrue(ids,user);
+        if(notifications.size()!=ids.size())throw new SecurityException("One or more notifications are unavailable");
+        return notifications;
     }
 
     private boolean isTypeEnabled(NotificationPreference preference, NotificationType type) {

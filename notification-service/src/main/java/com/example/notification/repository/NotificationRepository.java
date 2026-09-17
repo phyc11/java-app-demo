@@ -6,6 +6,7 @@ import org.springframework.stereotype.Repository;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Collection;
 import com.example.notification.model.EmailDeliveryStatus;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Page;
@@ -25,6 +26,10 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
                                  @Param("unreadOnly") boolean unreadOnly,Pageable pageable);
     long countByRecipientAndIsReadFalse(String recipient);
     long countByRecipientAndIsReadFalseAndInAppVisibleTrue(String recipient);
+    long countByRecipientAndInAppVisibleTrue(String recipient);
+    List<Notification> findAllByIdInAndRecipientAndInAppVisibleTrue(Collection<Long> ids,String recipient);
+    @Query("select n.type,count(n) from Notification n where n.recipient=:recipient and n.inAppVisible=true and n.isRead=false group by n.type")
+    List<Object[]> countUnreadByType(@Param("recipient") String recipient);
     Optional<Notification> findByIdAndRecipient(Long id, String recipient);
     @Modifying
     @Query("update Notification n set n.isRead=true where n.recipient=:recipient and n.inAppVisible=true and n.isRead=false")
