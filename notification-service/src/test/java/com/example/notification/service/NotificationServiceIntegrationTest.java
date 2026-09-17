@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
 import static org.junit.jupiter.api.Assertions.*;
+import java.util.Set;
 
 @SpringBootTest(properties = {
         "notification.email.enabled=false",
@@ -146,6 +147,37 @@ class NotificationServiceIntegrationTest {
 
         assertTrue(notificationService.getUserNotifications("alice").isEmpty());
         assertEquals(1,notificationRepository.count());
+    }
+
+    @Test
+    void summaryGroupsUnreadNotificationsByType() {
+        NotificationDTO mention=notificationService.processEvent(event("evt-summary-1","MENTION","alice"));
+        notificationService.processEvent(event("evt-summary-2","MENTION","alice"));
+        notificationService.processEvent(event("evt-summary-3","TASK_ASSIGNED","alice"));
+        notificationService.markAsRead(mention.getId(),"alice");
+
+        NotificationSummaryDTO summary=notificationService.getSummary("alice");
+
+        assertEquals(3,summary.getTotal());assertEquals(2,summary.getUnread());
+        assertEquals(1L,summary.getUnreadByType().get("MENTION"));
+        assertEquals(1L,summary.getUnreadByType().get("TASK_ASSIGNED"));
+    }
+
+    @Test
+    void bulkReadAndDismissOnlyOperateOnOwnedNotifications() {
+        NotificationDTO first=notificationService.processEvent(event("evt-bulk-1","MENTION","alice"));
+        NotificationDTO second=notificationService.processEvent(event("evt-bulk-2","TASK_ASSIGNED","alice"));
+        NotificationDTO other=notificationService.processEvent(event("evt-bulk-3","TASK_ASSIGNED","bob"));
+        NotificationBulkRequest owned=new NotificationBulkRequest();owned.setNotificationIds(Set.of(first.getId(),second.getId()));
+
+        assertEquals(2,notificationService.bulkMarkAsRead("alice",owned));
+        assertEquals(0,notificationService.getUnreadCount("alice"));
+        assertEquals(2,notificationService.bulkDismiss("alice",owned));
+        assertTrue(notificationService.getUserNotifications("alice").isEmpty());
+
+        NotificationBulkRequest mixed=new NotificationBulkRequest();mixed.setNotificationIds(Set.of(first.getId(),other.getId()));
+        assertThrows(SecurityException.class,()->notificationService.bulkMarkAsRead("alice",mixed));
+        assertEquals(1,notificationService.getUnreadCount("bob"));
     }
 
     private NotificationEvent event(String id, String type, String recipient) {
