@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.*;
 
 import javax.validation.Valid;
 import java.security.Principal;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -33,6 +34,9 @@ public class AuthController {
     }
     @PostMapping("/refresh") public ApiResponse<AuthResponse> refresh(@RequestBody RefreshTokenRequest r){return ApiResponse.ok("Token refreshed",authService.refresh(r.getRefreshToken()));}
     @PostMapping("/logout") public ApiResponse<Void> logout(@RequestBody RefreshTokenRequest r){authService.logout(r.getRefreshToken());return ApiResponse.ok("Logged out",null);}
+    @GetMapping("/sessions") public ApiResponse<List<AuthSessionDTO>> sessions(Principal principal){return ApiResponse.ok("Sessions retrieved",authService.getSessions(requirePrincipal(principal)));}
+    @DeleteMapping("/sessions/{sessionId}") public ApiResponse<Void> revokeSession(@PathVariable Long sessionId,Principal principal){authService.revokeSession(requirePrincipal(principal),sessionId);return ApiResponse.ok("Session revoked",null);}
+    @PostMapping("/logout-all") public ApiResponse<Void> logoutAll(Principal principal){authService.logoutAll(requirePrincipal(principal));return ApiResponse.ok("All sessions revoked",null);}
     @PostMapping("/verify-email") public ApiResponse<Void> verify(@RequestBody TokenRequest r){authService.verifyEmail(r.getToken());return ApiResponse.ok("Email verified",null);}
     @PostMapping("/forgot-password") public ApiResponse<Void> forgot(@RequestBody ForgotPasswordRequest r){authService.forgotPassword(r.getUsername());return ApiResponse.ok("If the account exists, reset instructions were sent",null);}
     @PostMapping("/reset-password") public ApiResponse<Void> reset(@RequestBody TokenPasswordRequest r){authService.resetPassword(r);return ApiResponse.ok("Password reset",null);}
@@ -63,4 +67,6 @@ public class AuthController {
         authService.changePassword(principal.getName(), request);
         return ApiResponse.ok("Đổi mật khẩu thành công!", null);
     }
+
+    private String requirePrincipal(Principal principal){if(principal==null||principal.getName()==null)throw new SecurityException("Authentication required");return principal.getName();}
 }
