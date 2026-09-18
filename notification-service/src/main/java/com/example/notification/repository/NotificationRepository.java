@@ -20,6 +20,7 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
     List<Notification> findByRecipientOrderByTimestampDesc(String recipient);
     List<Notification> findByRecipientAndInAppVisibleTrueOrderByTimestampDesc(String recipient);
     Page<Notification> findByRecipientAndInAppVisibleTrue(String recipient,Pageable pageable);
+    Page<Notification> findByRecipientAndDismissedTrue(String recipient,Pageable pageable);
     @Query("select n from Notification n where n.recipient=:recipient and n.inAppVisible=true " +
             "and (:type is null or n.type=:type) and (:unreadOnly=false or n.isRead=false)")
     Page<Notification> findInbox(@Param("recipient") String recipient,@Param("type") NotificationType type,

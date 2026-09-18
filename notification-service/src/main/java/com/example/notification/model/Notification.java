@@ -31,6 +31,7 @@ public class Notification {
 
     private boolean isRead = false;
     @Column(nullable=false) private boolean inAppVisible=true;
+    @Column(nullable=false) private boolean dismissed=false;
     @Enumerated(EnumType.STRING) @Column(nullable=false,length=30)
     private EmailDeliveryStatus emailStatus = EmailDeliveryStatus.NOT_REQUESTED;
     private int emailAttempts;
@@ -85,6 +86,7 @@ public class Notification {
     public boolean isRead() { return isRead; }
     public void setRead(boolean read) { isRead = read; }
     public boolean isInAppVisible(){return inAppVisible;} public void setInAppVisible(boolean v){inAppVisible=v;}
+    public boolean isDismissed(){return dismissed;} public void setDismissed(boolean value){dismissed=value;}
 
     public LocalDateTime getTimestamp() { return timestamp; }
     public void setTimestamp(LocalDateTime timestamp) { this.timestamp = timestamp; }

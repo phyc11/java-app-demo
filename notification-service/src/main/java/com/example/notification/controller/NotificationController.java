@@ -5,6 +5,7 @@ import com.example.notification.dto.NotificationDTO;
 import com.example.notification.dto.NotificationPreferenceRequest;
 import com.example.notification.dto.NotificationBulkRequest;
 import com.example.notification.dto.NotificationSummaryDTO;
+import com.example.notification.dto.NotificationDeliveryDTO;
 import com.example.notification.model.NotificationPreference;
 import com.example.notification.service.NotificationService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -44,6 +45,15 @@ public class NotificationController {
         String recipient = resolveUser(userHeader, principal);
         long count = notificationService.getUnreadCount(recipient);
         return ApiResponse.ok("Unread count retrieved", Map.of("unreadCount", count));
+    }
+
+    @GetMapping("/dismissed")
+    public ApiResponse<List<NotificationDTO>> getDismissed(
+            @RequestHeader(value="X-User",required=false) String userHeader,Principal principal,
+            @RequestParam(defaultValue="0") int page,@RequestParam(defaultValue="20") int size){
+        Page<NotificationDTO> dismissed=notificationService.getDismissed(resolveUser(userHeader,principal),page,size);
+        return ApiResponse.okPage("Dismissed notifications retrieved",dismissed.getContent(),dismissed.getNumber(),
+                dismissed.getSize(),dismissed.getTotalElements(),dismissed.getTotalPages());
     }
 
     @GetMapping("/summary")
@@ -99,6 +109,18 @@ public class NotificationController {
             @RequestHeader(value="X-User",required=false) String userHeader,Principal principal){
         notificationService.dismiss(id,resolveUser(userHeader,principal));
         return ApiResponse.ok("Notification dismissed",null);
+    }
+
+    @PostMapping("/{id}/restore")
+    public ApiResponse<NotificationDTO> restore(@PathVariable Long id,
+            @RequestHeader(value="X-User",required=false) String userHeader,Principal principal){
+        return ApiResponse.ok("Notification restored",notificationService.restore(id,resolveUser(userHeader,principal)));
+    }
+
+    @GetMapping("/{id}/delivery")
+    public ApiResponse<NotificationDeliveryDTO> getDelivery(@PathVariable Long id,
+            @RequestHeader(value="X-User",required=false) String userHeader,Principal principal){
+        return ApiResponse.ok("Notification delivery retrieved",notificationService.getDelivery(id,resolveUser(userHeader,principal)));
     }
 
     @PostMapping("/{id}/email/retry")

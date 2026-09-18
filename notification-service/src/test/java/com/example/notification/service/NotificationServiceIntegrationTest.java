@@ -180,6 +180,34 @@ class NotificationServiceIntegrationTest {
         assertEquals(1,notificationService.getUnreadCount("bob"));
     }
 
+    @Test
+    void dismissedInboxCanRestoreNotificationWithoutIncludingEmailOnlyRecords() {
+        NotificationDTO visible=notificationService.processEvent(event("evt-restore","MENTION","alice"));
+        notificationService.dismiss(visible.getId(),"alice");
+        NotificationPreferenceRequest hidden=new NotificationPreferenceRequest();hidden.setInAppEnabled(false);
+        notificationService.updatePreference("bob",hidden);
+        assertNull(notificationService.processEvent(event("evt-email-only","SYSTEM","bob")));
+
+        assertEquals(1,notificationService.getDismissed("alice",0,20).getTotalElements());
+        assertEquals(0,notificationService.getDismissed("bob",0,20).getTotalElements());
+        assertThrows(RuntimeException.class,()->notificationService.restore(visible.getId(),"bob"));
+        assertEquals(visible.getId(),notificationService.restore(visible.getId(),"alice").getId());
+        assertEquals(1,notificationService.getUserNotifications("alice").size());
+    }
+
+    @Test
+    void deliveryDetailsAreScopedAndExposeRetryState() {
+        NotificationPreferenceRequest preference=new NotificationPreferenceRequest();preference.setEmail("alice@example.com");preference.setEmailEnabled(true);
+        notificationService.updatePreference("alice",preference);
+        NotificationDTO notification=notificationService.processEvent(event("evt-delivery","TASK_ASSIGNED","alice"));
+
+        NotificationDeliveryDTO delivery=notificationService.getDelivery(notification.getId(),"alice");
+
+        assertEquals("SKIPPED_DISABLED",delivery.getEmailStatus());
+        assertTrue(delivery.isRetryable());assertEquals(3,delivery.getMaxAttempts());
+        assertThrows(RuntimeException.class,()->notificationService.getDelivery(notification.getId(),"bob"));
+    }
+
     private NotificationEvent event(String id, String type, String recipient) {
         NotificationEvent event = new NotificationEvent();
         event.setEventId(id);
