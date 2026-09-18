@@ -1,7 +1,7 @@
 package com.example.auth.service;
 import com.example.auth.dto.*; import com.example.auth.model.*; import com.example.auth.repository.UserRepository; import com.example.auth.security.JwtTokenProvider; import com.example.common.exception.ResourceNotFoundException;
 import org.springframework.security.authentication.*; import org.springframework.security.core.*; import org.springframework.security.core.context.SecurityContextHolder; import org.springframework.security.crypto.password.PasswordEncoder; import org.springframework.stereotype.Service; import org.springframework.transaction.annotation.Transactional;
-import java.util.Locale;
+import java.util.Locale; import java.util.List;
 @Service
 public class AuthService {
  private final AuthenticationManager authenticationManager;private final UserRepository users;private final PasswordEncoder encoder;private final JwtTokenProvider jwt;private final TokenService tokens;private final AuthMailService mail;
@@ -10,6 +10,9 @@ public class AuthService {
  @Transactional public AuthResponse register(RegisterRequest r){if(users.existsByUsername(r.getUsername()))throw new IllegalArgumentException("Username already exists");String email=required(r.getEmail(),"Email").toLowerCase(Locale.ROOT);if(users.existsByEmailIgnoreCase(email))throw new IllegalArgumentException("Email already exists");Role role=r.getRole()==Role.ROLE_ADMIN?Role.ROLE_USER:(r.getRole()==null?Role.ROLE_USER:r.getRole());User u=new User(r.getUsername(),encoder.encode(r.getPassword()),r.getFullName(),role);u.setEmail(email);users.save(u);String token=tokens.action(u.getId(),UserActionToken.Type.EMAIL_VERIFICATION,1440);mail.send(email,"Verify your TaskCraft email","Verification token: "+token);return new AuthResponse(null,u.getUsername(),u.getFullName(),u.getRole());}
  @Transactional public AuthResponse refresh(String raw){TokenService.Rotation r=tokens.rotate(raw);User u=users.findById(r.userId).orElseThrow(()->new ResourceNotFoundException("User","id",r.userId));if(!u.isActive()){tokens.revoke(r.token);throw new IllegalArgumentException("Account is disabled");}return response(u,jwt.generateToken(u.getUsername(),u.getRole()),r.token);}
  public void logout(String raw){tokens.revoke(raw);}
+ public List<AuthSessionDTO> getSessions(String username){return tokens.sessions(find(username).getId());}
+ public void revokeSession(String username,Long sessionId){tokens.revokeSession(find(username).getId(),sessionId);}
+ public void logoutAll(String username){tokens.revokeAll(find(username).getId());}
  @Transactional public void verifyEmail(String raw){Long uid=tokens.consume(raw,UserActionToken.Type.EMAIL_VERIFICATION);User u=users.findById(uid).orElseThrow();u.setEmailVerified(true);users.save(u);}
  public void forgotPassword(String username){users.findByUsernameIgnoreCase(username).ifPresent(u->{String token=tokens.action(u.getId(),UserActionToken.Type.PASSWORD_RESET,30);mail.send(u.getEmail(),"Reset your TaskCraft password","Reset token: "+token);});}
  @Transactional public void resetPassword(TokenPasswordRequest r){if(r.getNewPassword()==null||r.getNewPassword().length()<8)throw new IllegalArgumentException("Password must have at least 8 characters");Long uid=tokens.consume(r.getToken(),UserActionToken.Type.PASSWORD_RESET);User u=users.findById(uid).orElseThrow();u.setPassword(encoder.encode(r.getNewPassword()));users.save(u);tokens.revokeAll(uid);}
