@@ -75,6 +75,18 @@ public class NotificationService {
         return notificationRepository.countByRecipientAndIsReadFalseAndInAppVisibleTrue(requireUser(recipient));
     }
 
+    public Page<NotificationDTO> getDismissed(String recipient,int page,int size) {
+        if(page<0||size<1||size>100)throw new IllegalArgumentException("page must be >= 0 and size must be 1-100");
+        return notificationRepository.findByRecipientAndDismissedTrue(requireUser(recipient),
+                PageRequest.of(page,size,Sort.by("timestamp").descending())).map(NotificationDTO::new);
+    }
+
+    public NotificationDeliveryDTO getDelivery(Long id,String recipient) {
+        Notification notification=notificationRepository.findByIdAndRecipient(id,requireUser(recipient))
+                .orElseThrow(()->new ResourceNotFoundException("Notification","id",id));
+        return new NotificationDeliveryDTO(notification,maxEmailAttempts);
+    }
+
     public NotificationSummaryDTO getSummary(String recipient) {
         String user=requireUser(recipient);Map<String,Long> byType=new LinkedHashMap<>();
         for(Object[] row:notificationRepository.countUnreadByType(user))byType.put(((NotificationType)row[0]).name(),(Long)row[1]);
@@ -90,7 +102,7 @@ public class NotificationService {
 
     @Transactional
     public int bulkDismiss(String recipient,NotificationBulkRequest request) {
-        List<Notification> notifications=ownedBulk(recipient,request);notifications.forEach(n->n.setInAppVisible(false));
+        List<Notification> notifications=ownedBulk(recipient,request);notifications.forEach(n->{n.setInAppVisible(false);n.setDismissed(true);});
         notificationRepository.saveAll(notifications);return notifications.size();
     }
 
@@ -132,8 +144,18 @@ public class NotificationService {
     public void dismiss(Long id,String recipient) {
         Notification notification=notificationRepository.findByIdAndRecipient(id,requireUser(recipient))
                 .orElseThrow(()->new ResourceNotFoundException("Notification","id",id));
-        notification.setInAppVisible(false);
+        notification.setInAppVisible(false);notification.setDismissed(true);
         notificationRepository.save(notification);
+    }
+
+    @Transactional
+    public NotificationDTO restore(Long id,String recipient) {
+        Notification notification=notificationRepository.findByIdAndRecipient(id,requireUser(recipient))
+                .orElseThrow(()->new ResourceNotFoundException("Notification","id",id));
+        if(!notification.isDismissed())throw new IllegalStateException("Notification is not dismissed");
+        notification.setInAppVisible(true);notification.setDismissed(false);
+        Notification saved=notificationRepository.save(notification);NotificationDTO dto=new NotificationDTO(saved);
+        pushSseEvent(saved.getRecipient(),dto);return dto;
     }
 
     public NotificationPreference getPreference(String username) {
