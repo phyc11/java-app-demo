@@ -113,6 +113,31 @@ public class NotificationService {
     }
 
     @Transactional
+    public List<NotificationDTO> broadcastNotification(NotificationBroadcastRequest request) {
+        if (request == null) throw new IllegalArgumentException("Notification body is required");
+        if (request.getRecipients() == null || request.getRecipients().isEmpty()) {
+            throw new IllegalArgumentException("recipients are required");
+        }
+
+        LinkedHashSet<String> recipients = new LinkedHashSet<>();
+        for (String recipient : request.getRecipients()) recipients.add(requireUser(recipient));
+        if (recipients.size() > 100) throw new IllegalArgumentException("Broadcast supports at most 100 recipients");
+
+        String title = required(request.getTitle(), "Title");
+        String message = required(request.getMessage(), "Message");
+        NotificationType type = parseType(request.getType());
+        String resourceType = request.getResourceType() == null ? null : request.getResourceType().trim();
+        if (resourceType != null && resourceType.isEmpty()) resourceType = null;
+
+        List<NotificationDTO> notifications = new ArrayList<>();
+        for (String recipient : recipients) {
+            notifications.add(deliver(recipient, title, message, type,
+                    request.getResourceId(), resourceType, true));
+        }
+        return notifications;
+    }
+
+    @Transactional
     public NotificationDTO processEvent(NotificationEvent event) {
         if (event == null) throw new IllegalArgumentException("Notification event is required");
         String recipient = requireUser(event.getRecipient());

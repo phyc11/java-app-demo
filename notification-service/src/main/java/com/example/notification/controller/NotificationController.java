@@ -4,6 +4,7 @@ import com.example.common.dto.ApiResponse;
 import com.example.notification.dto.NotificationDTO;
 import com.example.notification.dto.NotificationPreferenceRequest;
 import com.example.notification.dto.NotificationBulkRequest;
+import com.example.notification.dto.NotificationBroadcastRequest;
 import com.example.notification.dto.NotificationSummaryDTO;
 import com.example.notification.dto.NotificationDeliveryDTO;
 import com.example.notification.model.NotificationPreference;
@@ -74,6 +75,15 @@ public class NotificationController {
             @RequestHeader(value="X-User",required=false) String userHeader,Principal principal){
         int updated=notificationService.bulkDismiss(resolveUser(userHeader,principal),request);
         return ApiResponse.ok("Notifications dismissed",Map.of("updated",updated));
+    }
+
+    @PostMapping("/broadcast")
+    public ApiResponse<List<NotificationDTO>> broadcastNotification(
+            @RequestBody NotificationBroadcastRequest request,
+            @RequestHeader("X-Role") String role) {
+        if (!"ROLE_ADMIN".equals(role)) throw new SecurityException("Administrator role required");
+        List<NotificationDTO> notifications = notificationService.broadcastNotification(request);
+        return ApiResponse.ok("Notifications sent successfully", notifications);
     }
 
     @PostMapping("/send")
