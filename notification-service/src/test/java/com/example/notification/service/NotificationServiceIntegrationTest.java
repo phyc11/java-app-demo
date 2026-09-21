@@ -181,6 +181,34 @@ class NotificationServiceIntegrationTest {
     }
 
     @Test
+    void broadcastCreatesOneNotificationPerRecipientWithResourceLink() {
+        NotificationBroadcastRequest request = new NotificationBroadcastRequest();
+        request.setRecipients(Set.of("alice", "bob"));
+        request.setTitle("System maintenance");
+        request.setMessage("The service will restart tonight.");
+        request.setType("SYSTEM");
+        request.setResourceId(7L);
+        request.setResourceType("ANNOUNCEMENT");
+
+        var notifications = notificationService.broadcastNotification(request);
+
+        assertEquals(2, notifications.size());
+        assertEquals(1, notificationService.getUnreadCount("alice"));
+        assertEquals(1, notificationService.getUnreadCount("bob"));
+        assertTrue(notifications.stream().allMatch(n -> n.getResourceId().equals(7L)));
+    }
+
+    @Test
+    void broadcastRequiresAtLeastOneRecipient() {
+        NotificationBroadcastRequest request = new NotificationBroadcastRequest();
+        request.setTitle("System maintenance");
+        request.setMessage("The service will restart tonight.");
+
+        assertThrows(IllegalArgumentException.class,
+                () -> notificationService.broadcastNotification(request));
+    }
+
+    @Test
     void dismissedInboxCanRestoreNotificationWithoutIncludingEmailOnlyRecords() {
         NotificationDTO visible=notificationService.processEvent(event("evt-restore","MENTION","alice"));
         notificationService.dismiss(visible.getId(),"alice");
